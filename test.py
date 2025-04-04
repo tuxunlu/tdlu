@@ -22,7 +22,7 @@ def main():
     )
     
     # Use a DataLoader with batch_size=1 for evaluation.
-    _, test_dataloader = dataset.get_dataloaders(batch_size=1, train_split=0, num_workers=4, pin_memory=True)
+    _, test_dataloader = dataset.get_dataloaders(batch_size=20, train_split=0, num_workers=4, pin_memory=True)
     print(len(test_dataloader))
     
     # Initialize the model and load the trained weights.
@@ -71,7 +71,7 @@ def main():
     plt.imshow(cm_normalized, interpolation='nearest', cmap=plt.cm.Blues)
     plt.title("Confusion Matrix with Count and Row-wise Percentage")
     cbar = plt.colorbar(label="Normalized Percentage")
-    tick_marks = np.arange(10)
+    tick_marks = np.arange(5)
     plt.xticks(tick_marks, tick_marks)
     plt.yticks(tick_marks, tick_marks)
     plt.xlabel("Predicted Label")
