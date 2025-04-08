@@ -11,9 +11,9 @@ from utils import get_run_number
 if __name__ == "__main__":
     # Configuration parameters.
     target = "tdlu_density"
-    description = "fused+hierarchical"
+    description = "fused+hierarchical+minmax"
     num_bins = 5  # Total number of bins/classes. Class 0 is handled separately.
-    batch_size = 20
+    batch_size = 32
     num_save = 20
 
     run_dir = os.path.join("runs", f"mg_experiment_{get_run_number()}_{description}_{target}_{num_bins}")
@@ -23,8 +23,8 @@ if __name__ == "__main__":
 
     # Instantiate the dataset.
     dataset = TDLUDataset(
-        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/WUSTL. Unmodified mammograms-selected/WUSTL_png',
-        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/WUSTL. Unmodified mammograms-selected/umd_annot_md_TDLU_y2025m03d13.csv',
+        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/WUSTL_Unmodified_mammograms_selected/WUSTL_png_minmax',
+        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/WUSTL_Unmodified_mammograms_selected/umd_annot_md_TDLU_y2025m03d13.csv',
         augment=True,
         weights_json_path=None,
         target=target,
