@@ -39,7 +39,7 @@ def convert_dicom_to_png(dicom_file, output_file, extra_flags=None):
 def main():
     # Define the parent directory containing all data folders and the CSV file.
     parent_input_dir = "/fs/nexus-scratch/tuxunlu/git/tdlu/WUSTL. Unmodified mammograms-selected"
-    output_dir = os.path.join(parent_input_dir, "WUSTL_png")
+    output_dir = os.path.join(parent_input_dir, "WUSTL_png_minmax")
     csv_file = os.path.join(parent_input_dir, "umd_annot_md_TDLU_y2025m03d13.csv")
 
     # Create the output directory if it doesn't exist
@@ -84,10 +84,7 @@ def main():
                     continue
                 manufacturer = subject_data[subject_id]["Manufacturer"].upper()
                 # Adjust flags based on manufacturer if needed (currently same flags for all)
-                if manufacturer == "GE MEDICAL SYSTEMS":
-                    flags = ["+on2", "-W"]
-                else:
-                    flags = ["+on2", "-W"]
+                flags = ["+on2", "+Wm"]
 
                 print(f"Converting {dicom_path} to {output_path} with flags: {flags}")
                 convert_dicom_to_png(dicom_path, output_path, extra_flags=flags)
