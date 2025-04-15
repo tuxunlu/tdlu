@@ -1,0 +1,39 @@
+# config.yaml
+
+# Model configuration. Choose one of:
+#   - "MGModule"
+#   - "MGModule_SingleHead"
+#   - "MGModuleViT"
+model:
+  name: "MGModule_SingleHead"
+  # Optionally, specify a pretrained model path (use null if not used)
+  pretrained_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p"
+
+# Loss configuration. The current options are:
+#   - "cross_entropy"
+#   - "hierarchical_cross_entropy"
+loss:
+  name: "cross_entropy"
+
+# Hyperparameters configuration.
+# Note: Some of these values (e.g., target, description, num_bins, batch_size)
+# are overwritten later in the script; adjust these here if desired.
+hyperparameters:
+  batch_size: 32
+  num_epochs: 500
+  learning_rate: 0.001
+  num_save: 20
+  num_bins: 4
+  target: "tdlu_density"            # Target label name.
+  description: ""
+  run_dir: "./runs"                 # Base directory to save run outputs.
+  num_workers: 4
+  pin_memory: true
+  train_split: 0.7
+  # Image directory for the training data.
+  image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/data/WUSTL_png"
+  # CSV file containing annotations.
+  csv_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/data/umd_annot_md_TDLU_y2025m04d11.csv"
+  augment: true
+  weights_json_path: null           # Optional weights JSON path (if applicable)
+  device: "cuda"                    # Use "cuda" if a GPU is available, otherwise "cpu"

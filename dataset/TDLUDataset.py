@@ -70,6 +70,7 @@ class TDLUDataset(Dataset):
         valid_values = numeric_target[(numeric_target.notna()) & (numeric_target != 0)]
         quantiles = [i / non_zero_bins for i in range(1, non_zero_bins)]
         self.quantile_thresholds = valid_values.quantile(quantiles).tolist()
+        print(f"Quantile thresholds for {target}: {self.quantile_thresholds}")
 
         all_image_files = sorted([f for f in os.listdir(image_dir) if f.endswith(".png")])
         

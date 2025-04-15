@@ -3,18 +3,17 @@ import torch.nn as nn
 import torchvision
 from torchvision.models.resnet import ResNet18_Weights
 
-class BinaryClassificationHead(nn.Module):
+class ClassificationHead(nn.Module):
     """
-    This head predicts whether the sample belongs to class 0 or non-zero.
-    It outputs 2 logits.
+    This head performs classification into num_classes categories.
     """
-    def __init__(self, input_dim, dropout_rate=0.5):
-        super(BinaryClassificationHead, self).__init__()
+    def __init__(self, input_dim, num_classes, dropout_rate=0.5):
+        super(ClassificationHead, self).__init__()
         self.fc1 = nn.Linear(input_dim, 128)
         self.bn1 = nn.BatchNorm1d(128)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc_out = nn.Linear(128, 2)
+        self.fc_out = nn.Linear(128, num_classes)
         
     def forward(self, x):
         x = self.fc1(x)
@@ -24,48 +23,9 @@ class BinaryClassificationHead(nn.Module):
         out = self.fc_out(x)
         return out
 
-class MultiClassificationHead(nn.Module):
-    """
-    This head predicts among the non-zero classes.
-    Its output dimension is (num_bins - 1).
-    """
-    def __init__(self, input_dim, num_classes, dropout_rate=0.5):
-        super(MultiClassificationHead, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.fc2 = nn.Linear(512, 256)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.fc3 = nn.Linear(256, 128)
-        self.bn3 = nn.BatchNorm1d(128)
-        self.fc4 = nn.Linear(128, 64)
-        self.bn4 = nn.BatchNorm1d(64)
-        self.dropout = nn.Dropout(dropout_rate)
-        self.relu = nn.ReLU(inplace=True)
-        self.fc_out = nn.Linear(64, num_classes)
-        
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc3(x)
-        x = self.bn3(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc4(x)
-        x = self.bn4(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        out = self.fc_out(x)
-        return out
-
-class MGModule(nn.Module):
+class MGModule_SingleHead(nn.Module):
     def __init__(self, num_bins, pretrained_path=None):
-        super(MGModule, self).__init__()
+        super(MGModule_SingleHead, self).__init__()
         # Load a pre-trained ResNet18 backbone.
         resnet = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
         # Remove the final fully connected layer.
@@ -100,9 +60,8 @@ class MGModule(nn.Module):
             nn.Dropout(0.5)
         )
         
-        # Update the heads to accept the new 256-dimensional multi-level fused features.
-        self.binary_head = BinaryClassificationHead(input_dim=256, dropout_rate=0.5)
-        self.multi_head = MultiClassificationHead(input_dim=256, num_classes=num_bins - 1, dropout_rate=0.5)
+        # Single classification head to output predictions over num_bins classes.
+        self.classification_head = ClassificationHead(input_dim=256, num_classes=num_bins, dropout_rate=0.5)
         
         if pretrained_path is not None:
             self.mg_load_pretrained_model(pretrained_path)
@@ -146,18 +105,16 @@ class MGModule(nn.Module):
         second_fusion_input = torch.cat([early_fused, density_embedded], dim=1)  # shape: [B, 512+64]
         multi_fused_feature = self.fusion_fc(second_fusion_input)  # shape: [B, 256]
         
-        # Classification heads (use the multi-level fused features).
-        binary_logits = self.binary_head(multi_fused_feature)
-        multi_logits = self.multi_head(multi_fused_feature)
+        # Single classification head.
+        logits = self.classification_head(multi_fused_feature)
         
-        return binary_logits, multi_logits, multi_fused_feature
+        return logits, multi_fused_feature
 
 # Example usage:
 if __name__ == "__main__":
-    model = MGModule(num_bins=10)
+    model = MGModule_SingleHead(num_bins=10)
     mg_input = torch.randn(8, 3, 224, 224)    # e.g., a batch of 8 images.
     density_input = torch.randn(8)             # one density per image.
-    binary_logits, multi_logits, fused_features = model(mg_input, density_input)
-    print("Binary logits shape:", binary_logits.shape)
-    print("Multi logits shape:", multi_logits.shape)
+    logits, fused_features = model(mg_input, density_input)
+    print("Logits shape:", logits.shape)
     print("Fused features shape:", fused_features.shape)
