@@ -1,39 +1,56 @@
 # config.yaml
 
+seed: 42  # Random seed for reproducibility
+
 # Model configuration. Choose one of:
 #   - "MGModule"
 #   - "MGModule_SingleHead"
 #   - "MGModuleViT"
-model:
-  name: "MGModule_SingleHead"
-  # Optionally, specify a pretrained model path (use null if not used)
-  pretrained_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p"
+model_name: "MGModule_SingleHead"
+# Optionally, specify a pretrained model path (use null if not used)
+pretrained_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p"
+use_compile: True  # Use TorchScript compilation for faster inference
 
 # Loss configuration. The current options are:
 #   - "cross_entropy"
 #   - "hierarchical_cross_entropy"
-loss:
-  name: "cross_entropy"
+loss: [CrossEntropyLoss]
+loss_weight: [1.0]  # Weight for the loss function
+weight_decay: 1.0e-4
+label_smoothing: 0.15
+
+# Training configuration.
+enable_checkpointing: True  # Enable model checkpointing
+lr: 1e-3
+max_epochs: 500
+lr_scheduler: "cosine"
+lr_decay_epochs: 500
+lr_decay_min_lr: 1.0e-6
 
 # Hyperparameters configuration.
 # Note: Some of these values (e.g., target, description, num_bins, batch_size)
 # are overwritten later in the script; adjust these here if desired.
-hyperparameters:
-  batch_size: 32
-  num_epochs: 500
-  learning_rate: 0.001
-  num_save: 20
-  num_bins: 4
-  target: "tdlu_density"            # Target label name.
-  description: ""
-  run_dir: "./runs"                 # Base directory to save run outputs.
-  num_workers: 4
-  pin_memory: true
-  train_split: 0.7
-  # Image directory for the training data.
-  image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/data/WUSTL_png"
-  # CSV file containing annotations.
-  csv_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/data/umd_annot_md_TDLU_y2025m04d11.csv"
-  augment: true
-  weights_json_path: null           # Optional weights JSON path (if applicable)
-  device: "cuda"                    # Use "cuda" if a GPU is available, otherwise "cpu"
+dataset_name: "TDLUDataset"
+batch_size: 32
+test_batch_size: 1
+num_save: 20
+num_bins: 4
+split_ratios: [0.8, 0.1, 0.1]
+target: "tdlu_density"            # Target label name.
+description: ""
+run_dir: "./runs"                 # Base directory to save run outputs.
+num_workers: 16
+persistent_workers: True
+pin_memory: True
+# Image directory for the training data.
+image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
+# CSV file containing annotations.
+csv_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m04d11.csv"
+augment: True
+weights_json_path: null           # Optional weights JSON path (if applicable)
+device: "cuda"                    # Use "cuda" if a GPU is available, otherwise "cpu"
+
+# Logging configuration.
+log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
+experiment_name: "mg_experiment"
+log_every_n_steps: 1  # Log every n steps
