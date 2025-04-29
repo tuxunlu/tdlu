@@ -22,7 +22,7 @@ label_smoothing: 0.15
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
-lr: 1.0e-4
+lr: 1e-4
 max_epochs: 1000
 lr_scheduler: "cosine_restart"
 lr_decay_epochs: 200
@@ -36,15 +36,14 @@ mamm_only: True
 batch_size: 48
 test_batch_size: 1
 num_save: 20
-num_bins: 4
-split_ratios: [0.8, 0.1, 0.1]
+num_bins: 2
 target: "tdlu_density"            # Target label name.
 run_dir: "./runs"                 # Base directory to save run outputs.
 num_workers: 12
-persistent_workers: False
+persistent_workers: True
 pin_memory: True
 # Image directory for the training data.
-image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
+root_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_dataset"
 # CSV file containing annotations.
 csv_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m04d11.csv"
 augment: True
@@ -53,5 +52,5 @@ device: "cuda"                    # Use "cuda" if a GPU is available, otherwise 
 
 # Logging configuration.
 log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "smoothed_metafuse_mirai_freeze_4bins_mamm_only"
+experiment_name: "config_freeze_2bins_mamm_only_1e-3"
 log_every_n_steps: 1  # Log every n steps

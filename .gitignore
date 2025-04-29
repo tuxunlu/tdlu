@@ -1,0 +1,11 @@
+/dcmtk-3.6.9-linux-x86_64-static/
+/OncoNet/
+/WUSTL_Unmodified_mammograms_selected/
+/runs/
+/data/
+*.png
+*.pyc
+*.zip
+*.dcm
+
+activate.sh

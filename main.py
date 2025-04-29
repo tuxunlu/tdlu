@@ -30,15 +30,18 @@ def load_callbacks(config):
             mode='max',
             save_top_k=1,
             filename='best-{epoch:03d}-{val_acc:.5f}',
+            verbose=True,
         ))
         # Save epoch checkpoint (latest model for each epoch).
         callbacks.append(plc.ModelCheckpoint(
             save_last=True,
             filename='last-{epoch:03d}-{val_acc:.5f}',
         ))
-        # Save all checkpoints (optional).
+        # Save all checkpoints.
         callbacks.append(plc.ModelCheckpoint(
             every_n_epochs=10,
+            save_top_k=-1,
+            save_on_train_epoch_end=True,
             filename='epoch-{epoch:03d}-{val_acc:.5f}',
         ))
     

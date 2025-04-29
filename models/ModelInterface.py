@@ -81,8 +81,8 @@ class ModelInterface(pl.LightningModule):
         correct_num = torch.sum(val_label == out_label).float()
         batch_acc = correct_num / out_label.size(0)
 
-        self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('val_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return val_loss
 
@@ -130,6 +130,13 @@ class ModelInterface(pl.LightningModule):
                 T_max=self.hparams.lr_decay_epochs,
                 eta_min=self.hparams.lr_decay_min_lr
             )
+        elif self.hparams.lr_scheduler == 'cosine_restart':
+            scheduler = lrs.CosineAnnealingWarmRestarts(
+                optimizer,
+                T_0=self.hparams.lr_decay_epochs,
+                T_mult=1,
+                eta_min=self.hparams.lr_decay_min_lr
+            )
         else:
             raise ValueError('Invalid lr_scheduler type!')
         return [optimizer], [scheduler]
@@ -146,9 +153,9 @@ class ModelInterface(pl.LightningModule):
         # Configure loss functions based on hyperparameters.
         config_loss_weight = self.hparams.loss_weight
         config_loss_names = self.hparams.loss
-        config_label_smoothing = self.hparams.label_smoothing
+        # config_label_smoothing = self.hparams.label_smoothing
 
-        config_loss_funcs = [getattr(importlib.import_module('torch.nn'), name)(label_smoothing=config_label_smoothing) for name in self.hparams.loss]
+        config_loss_funcs = [getattr(importlib.import_module('torch.nn'), name)() for name in self.hparams.loss]
 
         assert (len(config_loss_funcs) == len(config_loss_weight)
                 and len(config_loss_funcs) == len(config_loss_names)
@@ -175,13 +182,15 @@ class ModelInterface(pl.LightningModule):
         return loss_func
 
     def __load_model(self):
-        name = self.hparams.model_name
-        # Construct the class name from the module name.
+        name = self.hparams.model_class_name
+        # Attempt to import the `CamelCase` class name from the `snake_case.py` module. The module should be placed
+        # within the same folder as model_interface.py. Always name your model file name as `snake_case.py` and
+        # model class name as corresponding `CamelCase`.
         camel_name = ''.join([i.capitalize() for i in name.split('_')])
         try:
-            model_class = getattr(importlib.import_module('.' + name, package=__package__), name)
+            model_class = getattr(importlib.import_module('.' + name, package=__package__), camel_name)
         except Exception:
-            raise ValueError(f'Invalid Module File Name or Invalid Class Name {name}.{name}!')
+            raise ValueError(f'Invalid Module File Name or Invalid Class Name {name}.{camel_name}!')
         model = self.__instantiate(model_class)
         if self.hparams.use_compile:
             torch.compile(model)

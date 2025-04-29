@@ -9,11 +9,11 @@ class ClassificationHead(nn.Module):
     """
     def __init__(self, input_dim, num_classes, dropout_rate=0.5):
         super(ClassificationHead, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.bn1 = nn.BatchNorm1d(128)
+        self.fc1 = nn.Linear(input_dim, 256)
+        self.bn1 = nn.BatchNorm1d(256)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc_out = nn.Linear(128, num_classes)
+        self.fc_out = nn.Linear(256, num_classes)
         
     def forward(self, x):
         x = self.fc1(x)
@@ -23,41 +23,17 @@ class ClassificationHead(nn.Module):
         out = self.fc_out(x)
         return out
 
-class MGModule_SingleHead(nn.Module):
+class MgmoduleSingleheadMammOnly(nn.Module):
     def __init__(self, num_bins, pretrained_path=None):
-        super(MGModule_SingleHead, self).__init__()
+        super(MgmoduleSingleheadMammOnly, self).__init__()
         # Load a pre-trained ResNet18 backbone.
         resnet = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
         # Remove the final fully connected layer.
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        self.image_feature_dim = resnet.fc.in_features  # e.g., typically 512
+        self.image_feature_dim = resnet.fc.in_features
 
-        # Meta Embedding: embed [density, age, bmi] → 64‑dim
-        self.meta_emb = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(inplace=True)
-        )
-
-        # Early fusion now takes image_feature_dim + 64
-        self.early_fusion = nn.Sequential(
-            nn.Linear(self.image_feature_dim + 64, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5)
-        )
-        # Second fusion stays the same
-        self.fusion_fc = nn.Sequential(
-            nn.Linear(512 + 64, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5)
-        )
         # Classification head unchanged
-        self.classification_head = ClassificationHead(input_dim=256,
+        self.classification_head = ClassificationHead(input_dim=512,
                                                       num_classes=num_bins,
                                                       dropout_rate=0.5)
         
@@ -86,39 +62,20 @@ class MGModule_SingleHead(nn.Module):
         self.backbone._modules["7"]._modules["0"].load_state_dict(mirai_weight.layer4_0.state_dict())
         self.backbone._modules["7"]._modules["1"].load_state_dict(mirai_weight.layer4_1.state_dict())
 
-    def forward(self, mg, density, age, bmi):
+    def forward(self, mg):
         # 1) image branch
         mg_feature = self.backbone(mg)
         mg_feat_flat = mg_feature.view(mg_feature.size(0), -1)  # [B, image_feature_dim]
 
-        # 2) build meta‐feature tensor [B,3]
-        # density, age, bmi should all be shape [B] or [B,1]
-        if density.dim()==1: density = density.unsqueeze(1)
-        if age.dim()==1:     age     = age.unsqueeze(1)
-        if bmi.dim()==1:     bmi     = bmi.unsqueeze(1)
-        meta = torch.cat([density, age, bmi], dim=1)            # [B,3]
-
-        # 3) embed them
-        meta_embedded = self.meta_emb(meta)                     # [B,64]
-
-        # 4) first‐level fusion
-        early = torch.cat([mg_feat_flat, meta_embedded], dim=1) # [B, image_dim+64]
-        early = self.early_fusion(early)                        # [B,512]
-
-        # 5) second‐level fusion
-        second_in = torch.cat([early, meta_embedded], dim=1)    # [B,512+64]
-        fused = self.fusion_fc(second_in)                       # [B,256]
-
         # 6) classification
-        logits = self.classification_head(fused)                # [B,num_bins]
-        return logits, fused
+        logits = self.classification_head(mg_feat_flat)                # [B,num_bins]
+        return logits, mg_feat_flat
 
 
 # Example usage:
 if __name__ == "__main__":
-    model = MGModule_SingleHead(num_bins=10)
+    model = MgmoduleSingleheadMammOnly(num_bins=4)
     mg_input = torch.randn(8, 3, 224, 224)    # e.g., a batch of 8 images.
-    density_input = torch.randn(8)             # one density per image.
-    logits, fused_features = model(mg_input, density_input)
+    logits, fused_features = model(mg_input)
     print("Logits shape:", logits.shape)
     print("Fused features shape:", fused_features.shape)
