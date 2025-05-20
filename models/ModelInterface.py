@@ -6,6 +6,8 @@ import pytorch_lightning as pl
 from typing import Callable, Dict, Tuple
 import matplotlib.pyplot as plt
 
+from .loss.OhemCELoss import OhemCELoss
+
 class ModelInterface(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
@@ -137,6 +139,14 @@ class ModelInterface(pl.LightningModule):
                 T_mult=1,
                 eta_min=self.hparams.lr_decay_min_lr
             )
+        elif self.hparams.lr_scheduler == 'cyclic':
+            scheduler = lrs.CyclicLR(
+                optimizer,
+                base_lr=self.hparams.lr_decay_min_lr,
+                max_lr=self.hparams.lr,
+                step_size_up=self.hparams.lr_decay_epochs // 2,
+                mode='triangular2'
+            )
         else:
             raise ValueError('Invalid lr_scheduler type!')
         return [optimizer], [scheduler]
@@ -170,6 +180,8 @@ class ModelInterface(pl.LightningModule):
         user_loss_dict = {}
 
         loss_dict = {**config_loss_dict, **user_loss_dict}
+
+        print("Configured Loss Functions:", loss_dict)
 
         def loss_func(inputs, labels, stage):
             return self.__calculate_loss_and_log(
