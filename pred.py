@@ -1,7 +1,6 @@
 import os
 import datetime
 import yaml
-import torch
 import pytorch_lightning as pl
 import pytorch_lightning.callbacks as plc
 import inspect
@@ -27,23 +26,23 @@ def load_callbacks(config):
     if config.get('enable_checkpointing', False):
         # Save best checkpoint (monitoring validation accuracy).
         callbacks.append(plc.ModelCheckpoint(
-            monitor='val_f1',
+            monitor='val_acc',
             mode='max',
             save_top_k=1,
-            filename='best-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
+            filename='best-{epoch:03d}-{val_acc:.5f}',
             verbose=True,
         ))
         # Save epoch checkpoint (latest model for each epoch).
         callbacks.append(plc.ModelCheckpoint(
             save_last=True,
-            filename='last-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
+            filename='last-{epoch:03d}-{val_acc:.5f}',
         ))
         # Save all checkpoints.
         callbacks.append(plc.ModelCheckpoint(
             every_n_epochs=10,
             save_top_k=-1,
             save_on_train_epoch_end=True,
-            filename='epoch-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
+            filename='epoch-{epoch:03d}-{val_acc:.5f}',
         ))
     
     # Learning rate monitor.
@@ -95,57 +94,57 @@ def get_checkpoint_path(config):
 
 
 def main(config):
-    # Set random seed for reproducibility.
-    pl.seed_everything(config['seed'])
     
-    # Instantiate the data module and Lightning model.
-    data_module = DataInterface(**config)
-    model_module = ModelInterface(**config)
+    model = ModelInterface(**config)
+    model.load_from_checkpoint("/fs/nexus-scratch/tuxunlu/git/tdlu/runs/20250424-21-15-05-smoothed_metafuse_mirai_freeze_2bins/version_0/checkpoints/best-epoch=492-val_acc=0.93868.ckpt")
+    model.eval()
     
-    # Determine whether to resume from a checkpoint.
-    checkpoint_directory, checkpoint_file_path = (None, None)
-    if config.get('enable_checkpointing', False):
-        checkpoint_directory, checkpoint_file_path = get_checkpoint_path(config)
-    
-    # Create a logger. If resuming from a checkpoint, reuse the same logger directory.
-    if checkpoint_directory is not None:
-        logger = TensorBoardLogger(save_dir='.', name=checkpoint_directory)
-    else:
-        print("Training from scratch...")
-        log_dir_name_with_time = os.path.join(config['log_dir'], datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S"))
-        logger = TensorBoardLogger(save_dir='.', name=f"{log_dir_name_with_time}-{config['experiment_name']}")
-    config['logger'] = logger
+    # Load single image and normalize
+    import torch
+    from torchvision import transforms
+    from PIL import Image
 
-    # Load callbacks.
-    config['callbacks'] = load_callbacks(config)
-    
-    # Filter Trainer keyword arguments from the config using inspect.
-    signature = inspect.signature(Trainer.__init__)
-    trainer_kwargs = {}
-    for key in signature.parameters:
-        if key in config:
-            trainer_kwargs[key] = config[key]
-    # Ensure our logger and callbacks are included.
-    trainer_kwargs['logger'] = logger
-    trainer_kwargs['callbacks'] = config['callbacks']
-    trainer_kwargs['log_every_n_steps'] = config['log_every_n_steps']
-    
-    # Instantiate the Trainer.
-    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp", **trainer_kwargs)
-    
-    # Launch training. Use ckpt_path if resuming from a checkpoint.
+    # ------------------------------
+    # 1. Specify your image path:
+    # ------------------------------
+    img_path = "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16/10003-2.png"
 
-    # # Optionally load a model weight.
-    # if config.get('model_weight_path', None) is not None:
-    #     if not os.path.exists(config['model_weight_path']):
-    #         raise FileNotFoundError(f"Model weight file not found at {config['model_weight_path']}")
-    #     ckpt = torch.load(config['model_weight_path'])
-    #     model_module.load_state_dict(ckpt["state_dict"])
-    #     print(f"Loaded model weights from {config['model_weight_path']}")
+    # ------------------------------
+    # 2. Build the same transforms
+    #    you used during training:
+    # ------------------------------
+    mean = (0.111, 0.111, 0.111)
+    std  = (0.185, 0.185, 0.185)
 
-    trainer.fit(model=model_module, datamodule=data_module, ckpt_path=checkpoint_file_path)
+    preprocess = transforms.Compose([
+        transforms.Resize((1024, 1024)),
+        transforms.ToTensor(),                    # or use your ToTensor16RGB()
+        transforms.Normalize(mean, std),
+    ])
 
-    trainer.test(ckpt_path='best')
+    # ------------------------------
+    # 3. Load & preprocess:
+    # ------------------------------
+    img = Image.open(img_path).convert("RGB")
+    img_t = preprocess(img)                      # [C,H,W]
+    img_t = img_t.unsqueeze(0).to(model.device)  # [1,C,H,W]
+
+    # ------------------------------
+    # 4. Forward pass & decode:
+    # ------------------------------
+    with torch.no_grad():
+        out = model(img_t)   # adjust if your model returns multiple heads
+
+    # Suppose `out` is logits over bins/classes:
+    probs = torch.softmax(out, dim=1)            # [1, num_bins]
+    pred_bin = probs.argmax(dim=1).item()
+
+    print(f"Predicted bin: {pred_bin}, probs: {probs.squeeze().cpu().numpy()}")
+
+    
+
+
+
 
 
 if __name__ == '__main__':

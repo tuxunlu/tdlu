@@ -2,7 +2,7 @@
 /OncoNet/
 /WUSTL_Unmodified_mammograms_selected/
 /runs/
-/data/
+dataset/
 *.png
 *.pyc
 *.zip

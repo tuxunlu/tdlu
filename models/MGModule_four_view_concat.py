@@ -32,7 +32,7 @@ def init_weights(m):
         init.ones_(m.weight)
         init.zeros_(m.bias)
 
-class MgmoduleFourView(nn.Module):
+class MgmoduleFourViewConcat(nn.Module):
     """
     Model that encodes 4 mammogram views with shared backbone, fuses via transformer,
     and outputs logits for classification.
@@ -41,9 +41,7 @@ class MgmoduleFourView(nn.Module):
         self,
         num_bins: int,
         num_views: int = 4,
-        transformer_embed_dim: int = 512,
-        transformer_heads: int = 8,
-        transformer_layers: int = 2,
+        embed_dim: int = 512,
         dropout_rate: float = 0.5,
         freeze_backbone: bool = False,
         pretrained_path: str = None,
@@ -65,25 +63,13 @@ class MgmoduleFourView(nn.Module):
         if freeze_backbone:
             for name, p in self.backbone.named_parameters():
                 if name.startswith(("4", "5", "6", "7")):
-                    p.requires_grad = False 
+                    p.requires_grad = True 
                 else:
-                    p.requires_grad = True  # conv1, bn1, maxpool
-
-        # Transformer for fusion
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=transformer_embed_dim,
-            nhead=transformer_heads,
-            dropout=dropout_rate,
-            batch_first=False,
-        )
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=transformer_layers
-        )
+                    p.requires_grad = False  # conv1, bn1, maxpool
 
         # Classification head after fusion
         self.classification_head = ClassificationHead(
-            input_dim=transformer_embed_dim,
+            input_dim=self.feature_dim * num_views,
             num_classes=num_bins,
             dropout_rate=dropout_rate
         )
@@ -134,22 +120,15 @@ class MgmoduleFourView(nn.Module):
         # Flatten batch and view dims to encode all views
         x = views.view(B * V, C, H, W)
         feats = self.backbone(x)                    # [B*V, D, 1, 1]
-        feats = feats.view(B, V, self.feature_dim)  # [B, V, D]
-
-        # Prepare for transformer: [seq_len=V, batch=B, embed_dim]
-        seq = feats.permute(1, 0, 2)              # [V, B, D]
-        fused_seq = self.transformer(seq)         # [V, B, D]
-
-        # Aggregate transformer outputs (e.g., mean pooling)
-        fused = fused_seq.mean(dim=0)             # [B, D]
+        feats_flat = feats.view(B, -1)  # [B, V*D]
 
         # Classification
-        logits = self.classification_head(fused)  # [B, num_bins]
-        return logits, fused
+        logits = self.classification_head(feats_flat)  # [B, num_bins]
+        return logits, feats_flat
 
 # Example usage
 def example():
-    model = MgmoduleFourView(num_bins=2, freeze_backbone=False)
+    model = MgmoduleFourViewConcat(num_bins=2, freeze_backbone=False)
     # Batch of 4-view images: [B,4,3,224,224]
     dummy = torch.randn(8, 4, 3, 224, 224)
     logits, fused = model(dummy)

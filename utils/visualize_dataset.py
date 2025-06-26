@@ -2,7 +2,7 @@ import os
 import matplotlib.pyplot as plt
 from collections import Counter
 import torchvision.transforms as transforms
-from dataset.TDLUDataset import TDLUDataset
+from data.TDLUDataset import TDLUDataset
 
 def visualize_class_distribution(dataset):
     """

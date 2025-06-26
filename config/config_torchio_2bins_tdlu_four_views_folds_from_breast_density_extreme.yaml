@@ -9,19 +9,16 @@ seed: 1234  # Random seed for reproducibility
 #   - "MGModule_SingleHead_Mamm_Only"
 model_class_name: "MGModule_four_view"
 # Optionally, specify a pretrained model path (use null if not used)
-pretrained_path: /fs/nexus-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
+pretrained_path: null
+model_weight_path: /fs/nexus-scratch/tuxunlu/git/tdlu/runs/20250613-16-27-18-config_torchio_2bins_Breast_density_four_views_fold_0_weighted/version_0/checkpoints/last-epoch=367-val_acc=0.89583.ckpt
 use_compile: True  # Use TorchScript compilation for faster inference
 freeze_backbone: False  # Freeze the backbone model during training
 
 # Loss configuration. The current options are:
-#   - "cross_entropy"
+#   - "cross_entropy"¯
 #   - "hierarchical_cross_entropy"
 loss: [FocalLoss]
 loss_weight: [1.0]  # Weight for the loss function
-# weight_decay: 1.0e-3
-# label_smoothing: 0.15
-# use_ohem: False  # Use Online Hard Example Mining
-# keep_ratio: 0.7  # Ratio of hard examples to keep
 weight_decay: 1.0e-3
 focal_loss_alpha: [1.1051873198847262, 0.9130952380952381]  # Focal loss alpha values for each class
 focal_loss_gamma: 2.0  # Focal loss gamma value
@@ -44,9 +41,9 @@ batch_size: 12
 test_batch_size: 1
 num_save: 20
 num_bins: 2
-target: "tdlu_density"            # Target label name.
-zero: True
-label: False
+target: "tdlu_density_extreme"            # Target label name.
+zero: False
+label: True
 run_dir: "./runs"                 # Base directory to save run outputs.
 num_workers: 12
 persistent_workers: False
@@ -61,5 +58,5 @@ device: "cuda"                    # Use "cuda" if a GPU is available, otherwise 
 
 # Logging configuration.
 log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_2bins_tdlu_zero_four_views_fold_1_focalloss_full_aug"
+experiment_name: "config_torchio_2bins_tdlu_extreme_four_views_fold_1_from_breast_density_focalloss_full_aug"
 log_every_n_steps: 1  # Log every n steps

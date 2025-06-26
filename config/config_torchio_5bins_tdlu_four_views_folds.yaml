@@ -23,8 +23,8 @@ loss_weight: [1.0]  # Weight for the loss function
 # use_ohem: False  # Use Online Hard Example Mining
 # keep_ratio: 0.7  # Ratio of hard examples to keep
 weight_decay: 1.0e-3
-focal_loss_alpha: [1.1051873198847262, 0.9130952380952381]  # Focal loss alpha values for each class
-focal_loss_gamma: 2.0  # Focal loss gamma value
+focal_loss_alpha: [0.4420749279538905, 1.3575221238938053, 1.4893203883495145, 1.503921568627451, 1.503921568627451]  # Focal loss alpha values for each class
+focal_loss_gamma: 5  # Focal loss gamma value
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
@@ -43,7 +43,7 @@ mamm_only: True
 batch_size: 12
 test_batch_size: 1
 num_save: 20
-num_bins: 2
+num_bins: 5
 target: "tdlu_density"            # Target label name.
 zero: True
 label: False
@@ -61,5 +61,5 @@ device: "cuda"                    # Use "cuda" if a GPU is available, otherwise 
 
 # Logging configuration.
 log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_2bins_tdlu_zero_four_views_fold_1_focalloss_full_aug"
+experiment_name: "config_torchio_5bins_tdlu_zero_four_views_fold_1_focalloss_full_aug_gamma5"
 log_every_n_steps: 1  # Log every n steps

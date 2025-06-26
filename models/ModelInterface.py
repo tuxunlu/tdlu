@@ -7,6 +7,8 @@ from typing import Callable, Dict, Tuple
 import matplotlib.pyplot as plt
 
 from .loss.OhemCELoss import OhemCELoss
+from .loss.FocalLoss import FocalLoss
+from torchmetrics.classification import MulticlassF1Score
 
 class ModelInterface(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -17,30 +19,37 @@ class ModelInterface(pl.LightningModule):
         # Initialize a list to collect predicted labels from each training batch.
         self._train_labels = []
 
+        self.train_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins)
+        self.val_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins)
+        self.test_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins)
+
     def forward(self, x, *args, **kwargs):
         return self.model(x, *args, **kwargs)
 
     def training_step(self, batch, batch_idx):
         # Expect batch to be: (train_input, *other_inputs, train_labels)
-        train_input, *rest, train_labels = batch
-        train_out = self(train_input, *rest)
+        train_input, train_labels, train_filenames = batch
+        train_out = self(train_input)
         # Assume model returns logits (possibly with additional outputs)
-        train_logits, *rest = train_out
+        train_logits, train_fused_feature = train_out
         # Compute loss using the configured loss function.
+        
         train_loss = self.loss_function(train_logits, train_labels, 'train')
 
         # Get predicted class labels.
-        train_label = train_labels.argmax(dim=1)
         out_label = train_logits.argmax(dim=1)
-        correct_num = torch.sum(train_label == out_label).float()
+        correct_num = torch.sum(train_labels == out_label).float()
         batch_acc = correct_num / out_label.size(0)
 
+        self.train_f1.update(out_label, train_labels)
+
         # Also log loss in a way that aggregates over the epoch if desired.
-        self.log('train_loss', train_loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('train_acc', batch_acc, on_step=True, on_epoch=True, prog_bar=True)
+        self.log('train_loss', train_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_acc', batch_acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_f1', self.train_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         # Save the batch predictions for epoch-level aggregation.
-        self._train_labels.append(train_label.detach().cpu())
+        self._train_labels.append(train_labels.detach().cpu())
 
         # Return the loss (Lightning uses this for optimization).
         return train_loss
@@ -73,39 +82,43 @@ class ModelInterface(pl.LightningModule):
         self._train_labels = []
 
     def validation_step(self, batch, batch_idx):
-        val_input, *rest, val_labels = batch
-        val_out = self(val_input, *rest)
-        val_logits, *rest = val_out
+        val_input, val_labels, val_filenames = batch
+        val_out = self(val_input)
+        val_logits, val_fused_feature = val_out
         val_loss = self.loss_function(val_logits, val_labels, 'validation')
 
-        val_label = val_labels.argmax(dim=1)
         out_label = val_logits.argmax(dim=1)
-        correct_num = torch.sum(val_label == out_label).float()
+        correct_num = torch.sum(val_labels == out_label).float()
         batch_acc = correct_num / out_label.size(0)
+
+        self.val_f1.update(out_label, val_labels)
 
         self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('val_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_f1', self.val_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return val_loss
 
     def test_step(self, batch, batch_idx):
-        test_input, *rest, test_labels = batch
-        test_out = self(test_input, *rest)
-        test_logits, *rest = test_out
+        test_input, test_labels, test_filenames = batch
+        test_out = self(test_input)
+        test_logits, test_fused_feature = test_out
         test_loss = self.loss_function(test_logits, test_labels, 'test')
 
-        test_label = test_labels.argmax(dim=1)
         out_label = test_logits.argmax(dim=1)
 
         # Print sample predictions for debugging.
-        print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_label[:10].tolist()}")
+        print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_labels[:10].tolist()}")
         
 
-        correct_num = torch.sum(test_label == out_label).float()
+        correct_num = torch.sum(test_labels == out_label).float()
         batch_acc = correct_num / out_label.size(0)
+
+        self.test_f1.update(out_label, test_labels)
 
         self.log('test_loss', test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log('test_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('test_f1', self.test_f1, on_step=False, on_epoch=True, prog_bar=True)
 
         return test_loss
 
@@ -152,6 +165,13 @@ class ModelInterface(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def __calculate_loss_and_log(self, inputs, labels, loss_dict: Dict[str, Tuple[float, Callable]], stage: str):
+        if stage == 'train':
+            for _, func in loss_dict.values():
+                new_w = torch.tensor([0.6600688468158348, 2.0618279569892475], device=inputs.device)
+                # func.register_buffer('weight', new_w)
+        else:
+            for _, func in loss_dict.values():
+                func.register_buffer('weight', None)
         raw_loss_list = [func(inputs, labels) for _, func in loss_dict.values()]
         weighted_loss = [weight * raw_loss for (weight, _), raw_loss in zip(loss_dict.values(), raw_loss_list)]
         for name, raw_loss in zip(loss_dict.keys(), raw_loss_list):
@@ -165,8 +185,17 @@ class ModelInterface(pl.LightningModule):
         config_loss_names = self.hparams.loss
         # config_label_smoothing = self.hparams.label_smoothing
 
-        config_loss_funcs = [getattr(importlib.import_module('torch.nn'), name)() for name in self.hparams.loss]
-
+        # config_loss_funcs = [getattr(importlib.import_module('torch.nn'), name)() for name in self.hparams.loss]
+        config_loss_funcs = []
+        for name in self.hparams.loss:
+            if name == 'FocalLoss':
+                config_loss_funcs.append(
+                FocalLoss(alpha=self.hparams.focal_loss_alpha, gamma=self.hparams.focal_loss_gamma)
+            )
+            else:
+                config_loss_funcs.append(
+                    getattr(importlib.import_module('torch.nn'), name)()
+                )
         assert (len(config_loss_funcs) == len(config_loss_weight)
                 and len(config_loss_funcs) == len(config_loss_names)
                ), "Loss function count and weight/name count mismatch!"
@@ -180,8 +209,6 @@ class ModelInterface(pl.LightningModule):
         user_loss_dict = {}
 
         loss_dict = {**config_loss_dict, **user_loss_dict}
-
-        print("Configured Loss Functions:", loss_dict)
 
         def loss_func(inputs, labels, stage):
             return self.__calculate_loss_and_log(

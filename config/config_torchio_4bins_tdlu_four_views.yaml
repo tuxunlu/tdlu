@@ -1,6 +1,6 @@
 # config.yaml
 
-seed: 1234  # Random seed for reproducibility
+seed: 42  # Random seed for reproducibility
 
 # Model configuration. Choose one of:
 #   - "MGModule"
@@ -16,19 +16,16 @@ freeze_backbone: False  # Freeze the backbone model during training
 # Loss configuration. The current options are:
 #   - "cross_entropy"
 #   - "hierarchical_cross_entropy"
-loss: [FocalLoss]
-loss_weight: [1.0]  # Weight for the loss function
-# weight_decay: 1.0e-3
-# label_smoothing: 0.15
-# use_ohem: False  # Use Online Hard Example Mining
-# keep_ratio: 0.7  # Ratio of hard examples to keep
+loss: [CrossEntropyLoss]
+loss_weight: [0.5]  # Weight for the loss function
 weight_decay: 1.0e-3
-focal_loss_alpha: [1.1051873198847262, 0.9130952380952381]  # Focal loss alpha values for each class
-focal_loss_gamma: 2.0  # Focal loss gamma value
+label_smoothing: 0.15
+use_ohem: True  # Use Online Hard Example Mining
+keep_ratio: 0.7  # Ratio of hard examples to keep
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
-lr: 5.0e-4
+lr: 1.0e-4
 max_epochs: 500
 lr_scheduler: "cyclic"
 lr_decay_epochs: 100
@@ -37,20 +34,17 @@ lr_decay_min_lr: 5.0e-6
 # Hyperparameters configuration.
 # Note: Some of these values (e.g., target, description, num_bins, batch_size)
 # are overwritten later in the script; adjust these here if desired.
-dataset_name: "TDLUDataset_torchio_four_view_folds"
-cross_val_fold: 1
+dataset_name: "TDLUDataset_torchio_four_view"
 mamm_only: True
 batch_size: 12
 test_batch_size: 1
 num_save: 20
 num_bins: 2
 target: "tdlu_density"            # Target label name.
-zero: True
-label: False
 run_dir: "./runs"                 # Base directory to save run outputs.
 num_workers: 12
 persistent_workers: False
-pin_memory: False
+pin_memory: True
 # Image directory for the training data.
 image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
 # CSV file containing annotations.
@@ -61,5 +55,5 @@ device: "cuda"                    # Use "cuda" if a GPU is available, otherwise 
 
 # Logging configuration.
 log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_2bins_tdlu_zero_four_views_fold_1_focalloss_full_aug"
+experiment_name: "config_torchio_2bins_tdlu_four_views_ohem_mixed"
 log_every_n_steps: 1  # Log every n steps

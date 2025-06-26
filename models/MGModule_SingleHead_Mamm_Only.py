@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchvision.models.resnet import ResNet18_Weights, ResNet50_Weights
+import torch.nn.init as init
 
 class ClassificationHead(nn.Module):
     """
@@ -22,12 +23,24 @@ class ClassificationHead(nn.Module):
         x = self.dropout(x)
         out = self.fc_out(x)
         return out
+    
+import torch.nn as nn
+import torch.nn.init as init
+
+def init_weights(m):
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+        init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            init.zeros_(m.bias)
+    elif isinstance(m, nn.BatchNorm2d):
+        init.ones_(m.weight)
+        init.zeros_(m.bias)
 
 class MgmoduleSingleheadMammOnly(nn.Module):
-    def __init__(self, num_bins, pretrained_path=None):
+    def __init__(self, num_bins, freeze_backbone, pretrained_path=None):
         super(MgmoduleSingleheadMammOnly, self).__init__()
         # Load a pre-trained ResNet18 backbone.
-        resnet = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
+        resnet = torchvision.models.resnet18(weights=False)
         # Remove the final fully connected layer.
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         self.image_feature_dim = resnet.fc.in_features
@@ -39,11 +52,17 @@ class MgmoduleSingleheadMammOnly(nn.Module):
         
         if pretrained_path is not None:
             self.mg_load_pretrained_model(pretrained_path)
-
-        for name, param in self.backbone.named_parameters():
-            # freeze everything that isn’t in layer4
-            if 'layer4' not in name:
-                param.requires_grad = False
+        
+        if freeze_backbone:
+            for name, p in self.backbone.named_parameters():
+                print(name)
+                # if name.startswith(("6", "7")):
+                #     p.requires_grad = True 
+                #     self.backbone.apply(init_weights)
+                # else:
+                #     p.requires_grad = False  # conv1, bn1, maxpool
+                p.requires_grad = True
+                self.backbone.apply(init_weights)
 
     def mg_load_pretrained_model(self, mirai_path: str):
         # Optionally load pretrained weights for the backbone.
