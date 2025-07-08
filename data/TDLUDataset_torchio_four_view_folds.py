@@ -71,6 +71,20 @@ class TorchIOWrapper:
         transformed = self.tio_transform(subject)
         return transformed.image.data.squeeze(0).float()
 
+class RandomOrderTorchIO(tio.transforms.Transform):
+    def __init__(self, transforms, p=1.0, copy=True):
+        super().__init__(p=p, copy=copy)
+        # Ensure a mutable list copy
+        self.transforms = list(transforms)
+
+    def apply_transform(self, subject):
+        # Shuffle in place
+        random.shuffle(self.transforms)
+        # Apply each in new order
+        for transform in self.transforms:
+            subject = transform(subject)
+        return subject
+
 
 class TdludatasetTorchioFourViewFolds(Dataset):
     """
@@ -192,38 +206,114 @@ class TdludatasetTorchioFourViewFolds(Dataset):
         )
         print(f"{self.purpose} Class weights: {self.class_weights}")
 
+    # def _make_transform(self):
+    #     mean, std = (0.113,) * 3, (0.185,) * 3
+    #     tio_augs = tio.Compose([
+    #         # Intensity / bias
+    #         tio.RandomBiasField(coefficients=(0.1, 0.3), p=0.5),
+    #         tio.RandomGamma(log_gamma=(-0.3, 0.3), p=0.5),
+    #         tio.RandomNoise(mean=0.0, std=(0, 0.1), p=0.5),
+    #         tio.RandomBlur(std=(0.5, 1.5), p=0.5),
+
+    #         # Geometric
+    #         tio.RandomAffine(
+    #             scales=(0.9, 1.1),
+    #             degrees=15,
+    #             translation=0,
+    #             isotropic=False,
+    #             p=0.5
+    #         ),
+    #         tio.RandomElasticDeformation(
+    #             num_control_points=7,
+    #             max_displacement=(5, 5, 0),
+    #             locked_borders=2,
+    #             p=0.5
+    #         ),
+    #         tio.RandomFlip(axes=('LR',), p=0.5),
+    #     ])
+
+    #     wrapper = TorchIOWrapper(tio_augs)
+    #     base = [transforms.Resize((1024, 1024)), transforms.PILToTensor(), ConvertImageDtype(torch.float32)]
+    #     if self.purpose == 'train' and self.use_augmentation:
+    #         base.append(wrapper)
+    #     base += [Lambda(lambda x: x.repeat(3, 1, 1)), transforms.Normalize(mean, std)]
+    #     return transforms.Compose(base)
+
+    # def _make_transform(self):
+    #     mean, std = (0.113,) * 3, (0.185,) * 3
+    #     tio_dict = {
+    #         tio.RandomGamma(log_gamma=(-0.3, 0.3), p=1): 1,
+    #         tio.RandomNoise(mean=0.0, std=(0, 0.25), p=1): 1,
+    #         tio.RandomBlur(std=(0, 2), p=1): 1,
+    #         tio.RandomSwap(patch_size=(1, 32, 32), num_iterations=1, p=1): 1,
+    #         tio.RandomAffine(
+    #             scales=(0.95, 1.05),
+    #             degrees=10,
+    #             translation=0,
+    #             isotropic=False,
+    #             p=1
+    #         ): 1,
+    #         tio.RandomFlip(axes=('LR',), p=1): 1,
+    #         tio.RandomElasticDeformation(
+    #             num_control_points=7,
+    #             max_displacement=(5, 5, 0),
+    #             locked_borders=2,
+    #             p=1
+    #         ): 1,
+    #     }
+    #     tio_augs = tio.OneOf(tio_dict, p=0.9)      
+    #     wrapper = TorchIOWrapper(tio_augs)
+    #     base = [transforms.Resize((1024, 1024)), transforms.PILToTensor(), ConvertImageDtype(torch.float32)]
+    #     if self.purpose == 'train' and self.use_augmentation:
+    #         base.append(wrapper)
+    #     base += [Lambda(lambda x: x.repeat(3, 1, 1)), transforms.Normalize(mean, std)]
+    #     return transforms.Compose(base)
+
+    from torchvision.transforms import RandomApply
+
     def _make_transform(self):
-        mean, std = (0.113,) * 3, (0.185,) * 3
-        tio_augs = tio.Compose([
-            # Intensity / bias
-            tio.RandomBiasField(coefficients=(0.1, 0.3), p=0.5),
-            tio.RandomGamma(log_gamma=(-0.3, 0.3), p=0.5),
-            tio.RandomNoise(mean=0.0, std=(0, 0.1), p=0.5),
-            tio.RandomBlur(std=(0.5, 1.5), p=0.3),
+        mean, std = (0.113,)*3, (0.185,)*3
 
-            # Geometric
-            tio.RandomAffine(
-                scales=(0.9, 1.1),
-                degrees=15,
-                translation=0,
-                isotropic=False,
-                p=0.5
+        # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
+        tio_augs = [
+            tio.RandomBiasField(p=0.3),
+            tio.RandomGamma(log_gamma=(-0.5,0.5), p=0.4),
+            tio.RandomNoise(std=(0,0.5), p=0.4),
+            tio.RandomBlur(std=(0,2), p=0.3),
+            tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.3),
+            tio.RandomAffine(scales=(0.9,1.1), degrees=15, p=0.3),
+            tio.RandomElasticDeformation(
+                num_control_points=7, max_displacement=(5,5,0),
+                locked_borders=2, p=0.3
             ),
-            # tio.RandomElasticDeformation(
-            #     num_control_points=7,
-            #     max_displacement=(5, 5, 0),
-            #     locked_borders=2,
-            #     p=0.3
-            # ),
             tio.RandomFlip(axes=('LR',), p=0.5),
-        ])
+        ]
+        random_order_aug = RandomOrderTorchIO(tio_augs, p=1.0)
+        wrapper = TorchIOWrapper(random_order_aug)
 
-        wrapper = TorchIOWrapper(tio_augs)
-        base = [transforms.Resize((1024, 1024)), transforms.PILToTensor(), ConvertImageDtype(torch.float32)]
+        # 2) Put it behind a RandomApply gate:
+        #    p_block = fraction of samples you *do* want augmented
+        aug_gate = RandomApply([wrapper], p=0.8)
+
+        base = [
+            transforms.Resize((1024,1024)),
+            transforms.PILToTensor(),
+            ConvertImageDtype(torch.float32),
+            transforms.RandomErasing(
+                p=0.5,
+                scale=(0.02, 0.1),
+                ratio=(0.3, 3.3),
+                value=0
+            ),
+        ]
         if self.purpose == 'train' and self.use_augmentation:
-            base.append(wrapper)
-        base += [Lambda(lambda x: x.repeat(3, 1, 1)), transforms.Normalize(mean, std)]
+            base.append(aug_gate)
+        base += [
+            Lambda(lambda x: x.repeat(3,1,1)),
+            transforms.Normalize(mean, std),
+        ]
         return transforms.Compose(base)
+
 
     def __len__(self):
         return len(self.subjects)

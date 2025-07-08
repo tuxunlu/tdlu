@@ -44,8 +44,8 @@ class ModelInterface(pl.LightningModule):
         self.train_f1.update(out_label, train_labels)
 
         # Also log loss in a way that aggregates over the epoch if desired.
-        self.log('train_loss', train_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log('train_acc', batch_acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_loss', train_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('train_f1', self.train_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         # Save the batch predictions for epoch-level aggregation.
