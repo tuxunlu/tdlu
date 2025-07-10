@@ -101,11 +101,29 @@ class ModelInterface(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         test_input, test_labels, test_filenames = batch
-        test_out = self(test_input)
-        test_logits, test_fused_feature = test_out
-        test_loss = self.loss_function(test_logits, test_labels, 'test')
 
-        out_label = test_logits.argmax(dim=1)
+        # If TTA: inputs shaped [B, TTA, 4, 3, H, W]
+        if test_input.dim() == 6:
+            b, tta, v, c, h, w = test_input.shape
+            # flatten batch & TTA into one big batch
+            flat = test_input.view(b*tta, v, c, h, w)
+            logits, _ = self(flat)  # (b*tta, num_classes)
+            # reshape back to [B, TTA, C]
+            logits = logits.view(b, tta, -1)
+            # average logits across TTA dimension
+
+            votes = logits.argmax(dim=2)
+            out_label, _ = torch.mode(votes, dim=1)
+
+            test_logits = logits.mean(dim=1)
+            # out_label = test_logits.argmax(dim=1)
+            test_loss = self.loss_function(test_logits, test_labels, 'test')
+        else:
+            test_out = self(test_input)
+            test_logits, test_fused_feature = test_out
+            test_loss = self.loss_function(test_logits, test_labels, 'test')
+
+            out_label = test_logits.argmax(dim=1)
 
         # Print sample predictions for debugging.
         print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_labels[:10].tolist()}")

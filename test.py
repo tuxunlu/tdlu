@@ -110,21 +110,25 @@ def main():
 
     with torch.no_grad():
         for images, targets, _ in loader:
-            # **Send inputs to same device** :contentReference[oaicite:13]{index=13}
-            images  = images.to(device)
-            targets = targets.to(device)
+            if images.dim() == 6:
+                b, tta, v, c, h, w = images.shape
+                # flatten batch & TTA into one big batch
+                flat = images.view(b*tta, v, c, h, w)
+                logits, _ = model_module(flat.to(device))
+                # reshape back to [B, TTA, C]
+                logits = logits.view(b, tta, -1)
+                # average logits across TTA dimension
 
-            logits, _ = model_module(images)
-            probs = torch.softmax(logits, dim=1)
-            preds = torch.argmax(probs, dim=1)
+                votes = logits.argmax(dim=2)  # [B, TTA]
+                preds = votes.mode(dim=1).values  # [B]
 
-            all_probs.append(probs.cpu().numpy())
+            # all_probs.append(probs.cpu().numpy())
             all_preds.append(preds.cpu().numpy())
             all_targets.append(targets.cpu().numpy())
 
     all_preds   = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)
-    all_probs   = np.concatenate(all_probs, axis=0)
+    # all_probs   = np.concatenate(all_probs, axis=0)
 
     # Convert one-hot back to integer labels if needed
     if all_targets.ndim > 1:
