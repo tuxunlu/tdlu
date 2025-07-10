@@ -3,9 +3,12 @@
 /WUSTL_Unmodified_mammograms_selected/
 /runs/
 dataset/
+/config/
 *.png
 *.pyc
 *.zip
 *.dcm
 
 activate.sh
+test.sh
+*.yaml
