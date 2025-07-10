@@ -19,9 +19,9 @@ class ModelInterface(pl.LightningModule):
         # Initialize a list to collect predicted labels from each training batch.
         self._train_labels = []
 
-        self.train_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins)
-        self.val_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins)
-        self.test_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins)
+        self.train_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
+        self.val_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
+        self.test_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
 
     def forward(self, x, *args, **kwargs):
         return self.model(x, *args, **kwargs)
