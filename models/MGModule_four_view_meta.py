@@ -83,7 +83,6 @@ class MgmoduleFourViewMeta(nn.Module):
             nn.GELU()
         )
 
-
         # Transformer for fusion
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=transformer_embed_dim,

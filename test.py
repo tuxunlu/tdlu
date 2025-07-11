@@ -107,13 +107,14 @@ def main():
     all_preds, all_targets, all_probs = [], [], []
     
     loader = test_loader
+    loader.to(device)
 
     with torch.no_grad():
-        for images, targets, _ in loader:
-            if images.dim() == 6:
-                b, tta, v, c, h, w = images.shape
+        for *test_input, test_labels, test_filenames in loader:
+            if test_input[0].dim() == 6:
+                b, tta, v, c, h, w = test_input.shape
                 # flatten batch & TTA into one big batch
-                flat = images.view(b*tta, v, c, h, w)
+                flat = test_input.view(b*tta, v, c, h, w)
                 logits, _ = model_module(flat.to(device))
                 # reshape back to [B, TTA, C]
                 logits = logits.view(b, tta, -1)
@@ -121,10 +122,15 @@ def main():
 
                 votes = logits.argmax(dim=2)  # [B, TTA]
                 preds = votes.mode(dim=1).values  # [B]
+            else:
+                test_out = model_module(*test_input)
+                test_logits, test_fused_feature = test_out
+                
+                preds = test_logits.argmax(dim=1)
 
             # all_probs.append(probs.cpu().numpy())
             all_preds.append(preds.cpu().numpy())
-            all_targets.append(targets.cpu().numpy())
+            all_targets.append(test_labels.cpu().numpy())
 
     all_preds   = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)

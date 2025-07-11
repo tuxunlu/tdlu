@@ -28,8 +28,8 @@ class ModelInterface(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # Expect batch to be: (train_input, *other_inputs, train_labels)
-        train_input, train_labels, train_filenames = batch
-        train_out = self(train_input)
+        *train_input, train_labels, train_filenames = batch
+        train_out = self(*train_input)
         # Assume model returns logits (possibly with additional outputs)
         train_logits, train_fused_feature = train_out
         # Compute loss using the configured loss function.
@@ -82,8 +82,8 @@ class ModelInterface(pl.LightningModule):
         self._train_labels = []
 
     def validation_step(self, batch, batch_idx):
-        val_input, val_labels, val_filenames = batch
-        val_out = self(val_input)
+        *val_input, val_labels, val_filenames = batch
+        val_out = self(*val_input)
         val_logits, val_fused_feature = val_out
         val_loss = self.loss_function(val_logits, val_labels, 'validation')
 
@@ -100,10 +100,10 @@ class ModelInterface(pl.LightningModule):
         return val_loss
 
     def test_step(self, batch, batch_idx):
-        test_input, test_labels, test_filenames = batch
+        *test_input, test_labels, test_filenames = batch
 
         # If TTA: inputs shaped [B, TTA, 4, 3, H, W]
-        if test_input.dim() == 6:
+        if test_input[0].dim() == 6:
             b, tta, v, c, h, w = test_input.shape
             # flatten batch & TTA into one big batch
             flat = test_input.view(b*tta, v, c, h, w)
@@ -119,11 +119,11 @@ class ModelInterface(pl.LightningModule):
             # out_label = test_logits.argmax(dim=1)
             test_loss = self.loss_function(test_logits, test_labels, 'test')
         else:
-            test_out = self(test_input)
+            test_out = self(*test_input)
             test_logits, test_fused_feature = test_out
             test_loss = self.loss_function(test_logits, test_labels, 'test')
 
-            out_label = test_logits.argmax(dim=1)
+        out_label = test_logits.argmax(dim=1)
 
         # Print sample predictions for debugging.
         print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_labels[:10].tolist()}")
@@ -141,7 +141,7 @@ class ModelInterface(pl.LightningModule):
         return test_loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             params=self.model.parameters(),
             lr=float(self.hparams.lr),
             weight_decay=float(self.hparams.weight_decay)

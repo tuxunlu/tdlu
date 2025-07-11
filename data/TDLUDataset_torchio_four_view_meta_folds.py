@@ -178,8 +178,7 @@ class TdludatasetTorchioFourViewMetaFolds(Dataset):
             }
 
             # 3) extract the remaining 3 shared meta-features
-            subj_meta = group.iloc[0][['mamm_age', 'cbmi_donation', 'geanc_Race']]\
-                           .astype(float).values  # → shape (3,)
+            subj_meta = group.iloc[0][self.meta_cols].astype(float).values  # → shape (3,)
 
             all_data[sid] = {
                 'combos': combos,
@@ -315,15 +314,15 @@ class TdludatasetTorchioFourViewMetaFolds(Dataset):
         # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
         tio_augs = [
             tio.RandomBiasField(p=0.4),
-            tio.RandomGamma(log_gamma=(-0.5,0.5), p=0.4),
-            tio.RandomNoise(std=(0,0.5), p=0.4),
+            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.4),
+            tio.RandomNoise(std=(0,0.25), p=0.4),
             tio.RandomBlur(std=(0,2), p=0.4),
-            tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.4),
-            tio.RandomAffine(scales=(0.9,1.1), degrees=15, p=0.4),
-            tio.RandomElasticDeformation(
-                num_control_points=7, max_displacement=(5,5,0),
-                locked_borders=2, p=0.2
-            ),
+            # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.3),
+            tio.RandomAffine(scales=(0.8,1.2), degrees=15, p=0.4),
+            # tio.RandomElasticDeformation(
+            #     num_control_points=7, max_displacement=(5,5,0),
+            #     locked_borders=2, p=0.2
+            # ),
             tio.RandomFlip(axes=('LR',), p=0.5),
         ]
         random_order_aug = RandomOrderTorchIO(tio_augs, p=1.0)
@@ -390,7 +389,7 @@ class TdludatasetTorchioFourViewMetaFolds(Dataset):
             dtype=torch.float32
         )  # → shape [3]
 
-        return views_tensor, label, BreastDensity, meta, file_names
+        return views_tensor, BreastDensity, meta, label, file_names
 
 if __name__ == "__main__":
     ds = TdludatasetTorchioFourViewMetaFolds(
@@ -400,7 +399,7 @@ if __name__ == "__main__":
         target='tdlu_density',
         label=False,
         zero=False,
-        meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
+        meta_cols=['mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='train',
         cross_val_fold=0,
         val_fold=1
