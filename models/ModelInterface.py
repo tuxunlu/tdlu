@@ -183,13 +183,13 @@ class ModelInterface(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def __calculate_loss_and_log(self, inputs, labels, loss_dict: Dict[str, Tuple[float, Callable]], stage: str):
-        if stage == 'train':
-            for _, func in loss_dict.values():
-                new_w = torch.tensor([0.6600688468158348, 2.0618279569892475], device=inputs.device)
-                # func.register_buffer('weight', new_w)
-        else:
-            for _, func in loss_dict.values():
-                func.register_buffer('weight', None)
+        # if stage == 'train':
+        #     # for _, func in loss_dict.values():
+        #     #     new_w = torch.tensor([0.6600688468158348, 2.0618279569892475], device=inputs.device)
+        #         # func.register_buffer('weight', new_w)
+        # else:
+        #     for _, func in loss_dict.values():
+        #         func.register_buffer('weight', None)
         raw_loss_list = [func(inputs, labels) for _, func in loss_dict.values()]
         weighted_loss = [weight * raw_loss for (weight, _), raw_loss in zip(loss_dict.values(), raw_loss_list)]
         for name, raw_loss in zip(loss_dict.keys(), raw_loss_list):

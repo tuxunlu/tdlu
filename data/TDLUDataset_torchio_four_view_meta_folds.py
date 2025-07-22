@@ -313,15 +313,15 @@ class TdludatasetTorchioFourViewMetaFolds(Dataset):
 
         # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
         tio_augs = [
-            tio.RandomBiasField(p=0.4),
-            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.4),
-            tio.RandomNoise(std=(0,0.25), p=0.4),
-            tio.RandomBlur(std=(0,2), p=0.4),
+            tio.RandomBiasField(p=0.1),
+            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.1),
+            tio.RandomNoise(std=(0,0.25), p=0.1),
+            tio.RandomBlur(std=(0,2), p=0.1),
             # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.3),
-            tio.RandomAffine(scales=(0.8,1.2), degrees=15, p=0.4),
+            tio.RandomAffine(scales=(0.8,1.2), degrees=15, p=0.1),
             # tio.RandomElasticDeformation(
             #     num_control_points=7, max_displacement=(5,5,0),
-            #     locked_borders=2, p=0.2
+            #     locked_borders=2, p=0.3
             # ),
             tio.RandomFlip(axes=('LR',), p=0.5),
         ]
@@ -330,7 +330,7 @@ class TdludatasetTorchioFourViewMetaFolds(Dataset):
 
         # 2) Put it behind a RandomApply gate:
         #    p_block = fraction of samples you *do* want augmented
-        aug_gate = RandomApply([wrapper], p=0.7)
+        aug_gate = RandomApply([wrapper], p=0.8)
 
         base = [
             transforms.Resize((1024,1024)),

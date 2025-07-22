@@ -10,15 +10,15 @@ class ClassificationHead(nn.Module):
     def __init__(self, input_dim: int, num_classes: int, dropout_rate: float = 0.5):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, 256)
-        self.bn1 = nn.BatchNorm1d(256)
-        self.relu = nn.ReLU(inplace=True)
+        self.bn1 = nn.LayerNorm(256)
+        self.gelu = nn.GELU()
         self.dropout = nn.Dropout(dropout_rate)
         self.fc_out = nn.Linear(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.bn1(x)
-        x = self.relu(x)
+        x = self.gelu(x)
         x = self.dropout(x)
         return self.fc_out(x)
 
@@ -28,7 +28,7 @@ def init_weights(m):
         init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         if m.bias is not None:
             init.zeros_(m.bias)
-    elif isinstance(m, nn.BatchNorm2d):
+    elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.LayerNorm):
         init.ones_(m.weight)
         init.zeros_(m.bias)
 
@@ -101,6 +101,11 @@ class MgmoduleFourViewMeta(nn.Module):
             num_classes=num_bins,
             dropout_rate=dropout_rate
         )
+
+        self.density_film.apply(init_weights)
+        self.global_meta.apply(init_weights)
+        self.transformer.apply(init_weights)
+        self.classification_head.apply(init_weights)
 
     def _load_model_weight_backbone(self, model_weight_path: str):
         ckpt = torch.load(model_weight_path)
