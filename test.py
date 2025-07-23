@@ -104,7 +104,7 @@ def main():
     print(len(test_loader.dataset), "test samples")
     print(len(train_loader.dataset), "train samples")
     print(len(val_loader.dataset), "validation samples")
-    all_preds, all_targets, all_probs = [], [], []
+    all_preds, all_targets, all_probs, all_breast_density= [], [], [], []
     
     loader = test_loader
 
@@ -127,14 +127,17 @@ def main():
                 test_logits, test_fused_feature = test_out
                 
                 preds = test_logits.argmax(dim=1)
+                breast_density = test_input[1][:, 0].cpu().numpy()
 
             # all_probs.append(probs.cpu().numpy())
             all_preds.append(preds.cpu().numpy())
             all_targets.append(test_labels.cpu().numpy())
+            all_breast_density.append(breast_density)
 
     all_preds   = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)
     # all_probs   = np.concatenate(all_probs, axis=0)
+    all_breast_density = np.concatenate(all_breast_density, axis=0)
 
     # Convert one-hot back to integer labels if needed
     if all_targets.ndim > 1:
@@ -147,24 +150,44 @@ def main():
     # — Confusion matrix —
     cm = confusion_matrix(all_targets, all_preds)
     cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
+    
+    # --- new: compute average density per cell ---
+    num_bins = cm.shape[0]
+    avg_density = np.full_like(cm, np.nan, dtype=float)
+    for i in range(num_bins):
+        for j in range(num_bins):
+            mask = (all_targets == i) & (all_preds == j)
+            if np.any(mask):
+                avg_density[i, j] = all_breast_density[mask].mean()
+
+    # plotting
     plt.figure(figsize=(8,6))
     plt.imshow(cm_norm, cmap=plt.cm.Blues, vmin=0, vmax=1)
-    plt.title("Normalized Confusion Matrix")
+    plt.title("Normalized Confusion Matrix\n(with avg. breast density)")
     plt.colorbar()
-    ticks = np.arange(config['num_bins'])
+    ticks = np.arange(num_bins)
     plt.xticks(ticks, ticks); plt.yticks(ticks, ticks)
     plt.xlabel("Predicted"); plt.ylabel("True")
-    thresh = cm_norm.max()/2
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
+    thresh = cm_norm.max() / 2
+
+    for i in range(num_bins):
+        for j in range(num_bins):
+            count = cm[i, j]
+            pct   = cm_norm[i, j] * 100
+            mean_den = avg_density[i, j]
+            if np.isnan(mean_den):
+                den_str = "–"
+            else:
+                den_str = f"{mean_den:.2f}"
             plt.text(
                 j, i,
-                f"{cm[i,j]}\n({cm_norm[i,j]*100:.1f}%)",
+                f"{count}\n({pct:.1f}%)\n{den_str}",
                 ha='center', va='center',
-                color='white' if cm_norm[i,j]>thresh else 'black'
+                color='white' if cm_norm[i, j] > thresh else 'black'
             )
+
     plt.tight_layout()
-    plt.savefig("confusion_matrix.png", dpi=300)
+    plt.savefig("confusion_matrix_with_density.png", dpi=300)
     plt.close()
 
     # # — ROC curves —
