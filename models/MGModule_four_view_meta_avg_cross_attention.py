@@ -32,7 +32,7 @@ def init_weights(m):
         init.ones_(m.weight)
         init.zeros_(m.bias)
 
-class MgmoduleFourViewMetaAvg(nn.Module):
+class MgmoduleFourViewMetaAvgCrossAttention(nn.Module):
     """
     Model that encodes 4 mammogram views with shared backbone, fuses via transformer,
     and outputs logits for classification.
@@ -92,7 +92,7 @@ class MgmoduleFourViewMetaAvg(nn.Module):
             dropout_rate=dropout_rate
         )
         self.global_meta.apply(init_weights)
-        self.transformer.apply(init_weights)
+        self.decoder.apply(init_weights)
         self.classification_head.apply(init_weights)
 
     def _load_model_weight_backbone(self, model_weight_path: str):
@@ -128,10 +128,9 @@ class MgmoduleFourViewMetaAvg(nn.Module):
         self.backbone._modules["7"]._modules["0"].load_state_dict(mirai_weight.layer4_0.state_dict())
         self.backbone._modules["7"]._modules["1"].load_state_dict(mirai_weight.layer4_1.state_dict())
 
-    def forward(self, views: torch.Tensor, density: torch.Tensor, meta: torch.Tensor):
+    def forward(self, views: torch.Tensor, meta: torch.Tensor):
         """
         views: Tensor of shape [B, V, C, H, W], where V=4 views.
-        density: Tensor of shape [B, 4] → [density]
         meta:  Tensor [B, 3] → the tabular [age, BMI, ancestry]
         Returns:
           logits: [B, num_bins]
