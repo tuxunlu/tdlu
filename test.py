@@ -107,10 +107,10 @@ def main():
     all_preds, all_targets, all_probs = [], [], []
     
     loader = test_loader
-    loader.to(device)
 
     with torch.no_grad():
         for *test_input, test_labels, test_filenames in loader:
+            test_input = [t.to(device) for t in test_input]
             if test_input[0].dim() == 6:
                 b, tta, v, c, h, w = test_input.shape
                 # flatten batch & TTA into one big batch
