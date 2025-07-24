@@ -18,6 +18,8 @@ import time
 
 from utils.ToTensor16RGB import ToTensor16RGB
 
+import matplotlib.pyplot as plt
+
 
 def bin_value_quantile(value, thresholds):
     for i, t in enumerate(thresholds):
@@ -210,15 +212,15 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
         # save splits
         ts = time.time()
         split_name = f"fold{cross_val_fold}_"
-        if purpose in ['test']:
-            with open(f"{purpose}_subjects_{split_name}{ts}.json", 'w') as f:
-                json.dump(self.subjects, f)
-        if purpose in ['validation']:
-            with open(f"{purpose}_subjects_{split_name}{ts}.json", 'w') as f:
-                json.dump(self.subjects, f)
-        if purpose in ['train']:
-            with open(f"{purpose}_subjects_{split_name}{ts}.json", 'w') as f:
-                json.dump(self.subjects, f)
+        # if purpose in ['test']:
+        #     with open(f"{purpose}_subjects_{split_name}{ts}.json", 'w') as f:
+        #         json.dump(self.subjects, f)
+        # if purpose in ['validation']:
+        #     with open(f"{purpose}_subjects_{split_name}{ts}.json", 'w') as f:
+        #         json.dump(self.subjects, f)
+        # if purpose in ['train']:
+        #     with open(f"{purpose}_subjects_{split_name}{ts}.json", 'w') as f:
+        #         json.dump(self.subjects, f)
 
         self.transform = self._make_transform()
         
@@ -270,7 +272,7 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
     #         tio.RandomGamma(log_gamma=(-0.3, 0.3), p=1): 1,
     #         tio.RandomNoise(mean=0.0, std=(0, 0.25), p=1): 1,
     #         tio.RandomBlur(std=(0, 2), p=1): 1,
-    #         tio.RandomSwap(patch_size=(1, 32, 32), num_iterations=1, p=1): 1,
+    #         # tio.RandomSwap(patch_size=(1, 32, 32), num_iterations=1, p=1): 1,
     #         tio.RandomAffine(
     #             scales=(0.95, 1.05),
     #             degrees=10,
@@ -279,14 +281,14 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
     #             p=1
     #         ): 1,
     #         tio.RandomFlip(axes=('LR',), p=1): 1,
-    #         tio.RandomElasticDeformation(
-    #             num_control_points=7,
-    #             max_displacement=(5, 5, 0),
-    #             locked_borders=2,
-    #             p=1
-    #         ): 1,
+    #         # tio.RandomElasticDeformation(
+    #         #     num_control_points=7,
+    #         #     max_displacement=(5, 5, 0),
+    #         #     locked_borders=2,
+    #         #     p=1
+    #         # ): 1,
     #     }
-    #     tio_augs = tio.OneOf(tio_dict, p=0.9)      
+    #     tio_augs = tio.OneOf(tio_dict, p=0.7)      
     #     wrapper = TorchIOWrapper(tio_augs)
     #     base = [transforms.Resize((1024, 1024)), transforms.PILToTensor(), ConvertImageDtype(torch.float32)]
     #     if self.purpose == 'train' and self.use_augmentation:
@@ -301,24 +303,24 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
 
         # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
         tio_augs = [
-            tio.RandomBiasField(p=0.1),
-            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.1),
-            tio.RandomNoise(std=(0,0.25), p=0.1),
-            tio.RandomBlur(std=(0,2), p=0.1),
+            # tio.RandomBiasField(p=1),
+            # tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.2),
+            # tio.RandomNoise(std=(0,0.25), p=0.3),
+            # tio.RandomBlur(std=(0,2), p=0.3),
             # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.3),
-            tio.RandomAffine(scales=(0.8,1.2), degrees=15, p=0.1),
+            # tio.RandomAffine(scales=(0.9,1.1), degrees=1, p=1),
             # tio.RandomElasticDeformation(
             #     num_control_points=7, max_displacement=(5,5,0),
             #     locked_borders=2, p=0.3
             # ),
-            tio.RandomFlip(axes=('LR',), p=0.3),
+            # tio.RandomFlip(axes=('Height',), p=0.5),
         ]
-        random_order_aug = RandomOrderTorchIO(tio_augs, p=1.0)
+        random_order_aug = RandomOrderTorchIO(tio_augs, p=1)
         wrapper = TorchIOWrapper(random_order_aug)
 
         # 2) Put it behind a RandomApply gate:
         #    p_block = fraction of samples you *do* want augmented
-        aug_gate = RandomApply([wrapper], p=0.5)
+        aug_gate = RandomApply([wrapper], p=1)
 
         base = [
             transforms.Resize((1024,1024)),
@@ -331,8 +333,20 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
             #     value=0
             # ),
         ]
+
+        torch_augs = transforms.RandomApply(torch.nn.ModuleList([
+            transforms.RandomAffine(
+                degrees=10,
+                translate=(0.05, 0.05),
+                scale=(0.9, 1.1),
+                shear=10,
+            ),
+            transforms.RandomVerticalFlip(p=0.5),
+        ]), p=0.6)
+
         if self.purpose == 'train' and self.use_augmentation:
             base.append(aug_gate)
+            base.append(torch_augs)
         base += [
             Lambda(lambda x: x.repeat(3,1,1)),
             transforms.Normalize(mean, std),
@@ -377,14 +391,37 @@ if __name__ == "__main__":
     ds = TdludatasetTorchioFourViewMetaAvgFolds(
         image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
         csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
-        num_bins=2,
-        target='tdlu_density',
-        label=False,
+        num_bins=3,
+        target='tdlu_density_extreme_zero',
+        label=True,
         zero=False,
-        meta_cols=['mamm_age', 'cbmi_donation', 'geanc_Race'],
+        meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='train',
         cross_val_fold=0,
         val_fold=1
     )
-    i=3
-    print(len(ds), ds[i][0].shape, ds[i][1], ds[i][2], ds[i][3], ds[i][4])
+
+    idx=3
+    
+    views, meta, label, filenames = ds[idx]
+    # statistics used in your Normalize
+    mean = torch.tensor([0.113, 0.113, 0.113])[:, None, None]
+    std  = torch.tensor([0.185, 0.185, 0.185])[:, None, None]
+
+    fig, axes = plt.subplots(1, len(views), figsize=(16,4))
+    for i, (v, fname) in enumerate(zip(views, filenames)):
+        # un-normalize
+        img = v * std + mean               # still [3,H,W]
+        img = img.clamp(0,1)               # ensure in [0,1]
+        img = img.permute(1,2,0).cpu().numpy()  # → H×W×3
+
+        # if you want grayscale, average the channels:
+        gray = img.mean(-1)
+
+        axes[i].imshow(gray, cmap='gray')
+        axes[i].set_title(fname.split('.')[0])
+        axes[i].axis('off')
+
+    plt.tight_layout()
+    plt.show()
+    plt.savefig('views.png', dpi=300)
