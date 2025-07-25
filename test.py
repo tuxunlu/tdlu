@@ -160,6 +160,13 @@ def main():
             if np.any(mask):
                 avg_density[i, j] = all_breast_density[mask].mean()
 
+    std_density = np.full_like(cm, np.nan, dtype=float)
+    for i in range(num_bins):
+        for j in range(num_bins):
+            mask = (all_targets == i) & (all_preds == j)
+            if np.any(mask):
+                std_density[i, j] = all_breast_density[mask].std()
+
     # plotting
     plt.figure(figsize=(8,6))
     plt.imshow(cm_norm, cmap=plt.cm.Blues, vmin=0, vmax=1)
@@ -177,11 +184,13 @@ def main():
             mean_den = avg_density[i, j]
             if np.isnan(mean_den):
                 den_str = "–"
+                std_str = "–"
             else:
-                den_str = f"{mean_den:.2f}"
+                den_str = f"mean: {mean_den:.2f}"
+                std_str = f"std: {std_density[i, j]:.2f}" if not np.isnan(std_density[i, j]) else "–"
             plt.text(
                 j, i,
-                f"{count}\n({pct:.1f}%)\n{den_str}",
+                f"{count}\n({pct:.1f}%)\n{den_str}\n{std_str}",
                 ha='center', va='center',
                 color='white' if cm_norm[i, j] > thresh else 'black'
             )
