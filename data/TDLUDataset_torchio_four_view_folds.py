@@ -198,7 +198,7 @@ class TdludatasetTorchioFourViewFolds(Dataset):
                 json.dump(self.subjects, f)
 
         self.transform = self._make_transform()
-        self.tta_transforms = self._make_tta_transform() if self.tta_rounds > 1 else None
+        # self.tta_transforms = self._make_tta_transform() if self.tta_rounds > 1 else None
         
         self.class_weights = compute_class_weights(
             self.subjects,
@@ -277,65 +277,50 @@ class TdludatasetTorchioFourViewFolds(Dataset):
 
         # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
         tio_augs = [
-            tio.RandomBiasField(p=0.2),
-            tio.RandomGamma(log_gamma=(-0.5,0.5), p=0.4),
-            tio.RandomNoise(std=(0,0.5), p=0.4),
-            tio.RandomBlur(std=(0,2), p=0.4),
-            # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.4),
-            tio.RandomAffine(scales=(0.9,1.1), degrees=15, p=0.4),
+            tio.RandomBiasField(p=0.5),
+            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.5),
+            tio.RandomNoise(std=(0,0.25), p=0.5),
+            tio.RandomBlur(std=(0,2), p=0.5),
+            # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=1),
+            # tio.RandomAffine(scales=(0.9,1.1), degrees=1, p=1),
             # tio.RandomElasticDeformation(
             #     num_control_points=7, max_displacement=(5,5,0),
-            #     locked_borders=2, p=0.2
+            #     locked_borders=2, p=1
             # ),
-            tio.RandomFlip(axes=('LR',), p=0.5),
+            # tio.RandomFlip(axes=('LR',), p=1),
         ]
-        random_order_aug = RandomOrderTorchIO(tio_augs, p=1.0)
+        random_order_aug = RandomOrderTorchIO(tio_augs, p=0.8)
         wrapper = TorchIOWrapper(random_order_aug)
 
         # 2) Put it behind a RandomApply gate:
         #    p_block = fraction of samples you *do* want augmented
-        aug_gate = RandomApply([wrapper], p=0.5)
-
-        base = [
-            transforms.Resize((1024,1024)),
-            transforms.PILToTensor(),
-            ConvertImageDtype(torch.float32),
-            # transforms.RandomErasing(
-            #     p=0.5,
-            #     scale=(0.02, 0.1),
-            #     ratio=(0.3, 3.3),
-            #     value=0
-            # ),
-        ]
-        if self.purpose == 'train' and self.use_augmentation:
-            base.append(aug_gate)
-        base += [
-            Lambda(lambda x: x.repeat(3,1,1)),
-            transforms.Normalize(mean, std),
-        ]
-        return transforms.Compose(base)
-    
-    def _make_tta_transform(self):
-        mean, std = (0.113,)*3, (0.185,)*3
-
-        # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
-        tio_augs = [
-            tio.RandomBiasField(p=0.2),
-            tio.RandomGamma(log_gamma=(-0.5,0.5), p=0.2),
-            tio.RandomAffine(scales=(0.9,1.1), degrees=15, p=0.4),
-            tio.RandomFlip(axes=('LR',), p=0.5),
-        ]
-        random_order_aug = RandomOrderTorchIO(tio_augs, p=1.0)
-        wrapper = TorchIOWrapper(random_order_aug)
         aug_gate = RandomApply([wrapper], p=1)
 
         base = [
             transforms.Resize((1024,1024)),
             transforms.PILToTensor(),
             ConvertImageDtype(torch.float32),
+            # transforms.RandomErasing(
+            #     p=0.3,
+            #     scale=(0.02, 0.1),
+            #     ratio=(0.3, 3.3),
+            #     value=0
+            # ),
         ]
-        if self.tta_rounds > 1:
+
+        torch_augs = transforms.RandomApply(torch.nn.ModuleList([
+            transforms.RandomAffine(
+                degrees=10,
+                translate=(0.05, 0.05),
+                scale=(0.9, 1.1),
+                shear=10,
+            ),
+            transforms.RandomVerticalFlip(p=0.5),
+        ]), p=0.8)
+
+        if self.purpose == 'train' and self.use_augmentation:
             base.append(aug_gate)
+            base.append(torch_augs)
         base += [
             Lambda(lambda x: x.repeat(3,1,1)),
             transforms.Normalize(mean, std),
@@ -349,8 +334,17 @@ class TdludatasetTorchioFourViewFolds(Dataset):
     def __getitem__(self, idx):
         sid = self.subjects[idx]
         data = self.subject_data[sid]
-        raw = data['target']
+        views = []
+        file_names = []
+        for combo in self.allowed_combos:
+            fname = data['combos'][combo]          # get the filename
+            img_path = os.path.join(self.image_dir, fname)
+            img = Image.open(img_path)
+            views.append(self.transform(img))
+            file_names.append(fname)
+        views_tensor = torch.stack(views, 0)
 
+        raw = data['target']
         if self.label:
             bin_idx = raw
         elif self.zero:
@@ -359,31 +353,7 @@ class TdludatasetTorchioFourViewFolds(Dataset):
             bin_idx = bin_value_quantile(raw, self.thresholds)
         label = torch.tensor(bin_idx, dtype=torch.long)
 
-        # For train/val: exactly one view stack:
-        if self.purpose != 'test' or self.tta_rounds == 1:
-            views = []
-            for combo in self.allowed_combos:
-                img = Image.open(os.path.join(self.image_dir, data['combos'][combo]))
-                views.append(self.transform(img))
-            views_tensor = torch.stack(views, 0)
-            return views_tensor, label, data['combos']
-
-        # For test + TTA: produce multiple augmented versions
-        all_views = []
-        for n in range(self.tta_rounds):
-            views = []
-            for combo in self.allowed_combos:
-                img = Image.open(os.path.join(self.image_dir, data['combos'][combo]))
-                x = img
-                if self.tta_transforms:
-                    x = self.tta_transforms(x)
-                views.append(x)
-            all_views.append(torch.stack(views, 0))
-
-        # returns list of TTA tensors
-        # shape: [tta_rounds, 4, 3, H, W]
-
-        return torch.stack(all_views, 0), label, data['combos']
+        return views_tensor, label, file_names
 
 if __name__ == "__main__":
     ds = TdludatasetTorchioFourViewFolds(
