@@ -48,13 +48,16 @@ class MgmoduleFourViewMetaAvgCrossAttention(nn.Module):
         dropout_rate: float = 0.5,
         freeze_backbone: bool = False,
         pretrained_path: str = None,
-        model_weight_path: str = None
+        model_weight_path: str = None,
+        meta_only: bool = False
     ):
         super().__init__()
         # Load ResNet18 backbone without final FC
         resnet = torchvision.models.resnet18(weights=None)
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         self.feature_dim = resnet.fc.in_features  # typically 512
+
+        self.meta_only = meta_only
 
         # Optional pretrained loading
         if pretrained_path:
@@ -136,6 +139,12 @@ class MgmoduleFourViewMetaAvgCrossAttention(nn.Module):
           logits: [B, num_bins]
           fused_features: [B, transformer_embed_dim]
         """
+        if self.meta_only:
+            assert meta is not None, "Metadata must be provided for meta-only mode"
+            meta_feats = self.global_meta(meta)              # [B, D]
+            logits = self.classification_head(meta_feats)   # [B, num_bins]
+            return logits, meta_feats
+
         B, V, C, H, W = views.shape
         assert V == 4, f"Expected 4 views, got {V}"
 
