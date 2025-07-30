@@ -36,8 +36,9 @@ class DataInterface(pl.LightningDataModule):
             dataset=self.train_set,
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
-            shuffle=False,
-            persistent_workers=self.hparams.persistent_workers
+            shuffle=True,
+            persistent_workers=self.hparams.persistent_workers,
+            drop_last=True,
         )
 
 
