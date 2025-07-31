@@ -24,7 +24,7 @@ loss_weight: [1.0]  # Weight for the loss function
 # keep_ratio: 0.7  # Ratio of hard examples to keep
 weight_decay: 1.0e-3
 focal_loss_alpha: [0.7507598784194529, 0.8045602605863192, 2.3523809523809525]  # Focal loss alpha values for each class
-focal_loss_gamma: 2   # Focal loss gamma value
+focal_loss_gamma: 1   # Focal loss gamma value
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
@@ -38,7 +38,7 @@ lr_decay_min_lr: 5.0e-7
 # Note: Some of these values (e.g., target, description, num_bins, batch_size)
 # are overwritten later in the script; adjust these here if desired.
 dataset_name: "TDLUDataset_torchio_four_view_folds"
-cross_val_fold: 0
+cross_val_fold: 1
 mamm_only: True
 batch_size: 24
 test_batch_size: 1

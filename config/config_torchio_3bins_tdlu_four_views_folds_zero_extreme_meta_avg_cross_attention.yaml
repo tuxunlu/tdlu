@@ -9,7 +9,7 @@ seed: 1234  # Random seed for reproducibility
 #   - "MGModule_SingleHead_Mamm_Only"
 model_class_name: "MGModule_four_view_meta_avg_cross_attention"
 # Optionally, specify a pretrained model path (use null if not used)
-pretrained_path: /beacon-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
+pretrained_path: /fs/nexus-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
 use_compile: True  # Use TorchScript compilation for faster inference
 freeze_backbone: False  # Freeze the backbone model during training
 
@@ -24,7 +24,7 @@ loss_weight: [1.0]  # Weight for the loss function
 # keep_ratio: 0.7  # Ratio of hard examples to keep
 weight_decay: 1.0e-3
 focal_loss_alpha: [0.7507598784194529, 0.8045602605863192, 2.3523809523809525]  # Focal loss alpha values for each class
-focal_loss_gamma:  2  # Focal loss gamma value
+focal_loss_gamma:  1  # Focal loss gamma value
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
@@ -32,7 +32,7 @@ lr: 5.0e-4
 max_epochs: 1000
 lr_scheduler: "cyclic"
 lr_decay_epochs: 200
-lr_decay_min_lr: 5.0e-6
+lr_decay_min_lr: 5.0e-7
 
 # Hyperparameters configuration.
 # Note: Some of these values (e.g., target, description, num_bins, batch_size)
@@ -53,14 +53,14 @@ num_workers: 12
 persistent_workers: False
 pin_memory: False
 # Image directory for the training data.
-image_dir: "/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
+image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
 # CSV file containing annotations.
-csv_path: "/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv"
+csv_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv"
 augment: True
 weights_json_path: null           # Optional weights JSON path (if applicable)
 device: "cuda"                    # Use "cuda" if a GPU is available, otherwise "cpu"
 
 # Logging configuration.
-log_dir: "/beacon-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_3bins_tdlu_four_views_fold_1_focalloss_gamma2_randomapply_meta_zero_extreme_avg_cross_attention_aug_corrected_0.5_0.6"
+log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
+experiment_name: "config_torchio_3bins_tdlu_four_views_fold_1_focalloss_gamma1_randomapply_meta_zero_extreme_avg_cross_attention_aug_corrected_0.5_0.8_0.8_shuffle"
 log_every_n_steps: 1  # Log every n steps

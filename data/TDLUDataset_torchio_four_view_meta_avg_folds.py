@@ -303,19 +303,19 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
 
         # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
         tio_augs = [
-            # tio.RandomBiasField(p=1),
-            # tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.2),
-            # tio.RandomNoise(std=(0,0.25), p=0.3),
-            # tio.RandomBlur(std=(0,2), p=0.3),
-            # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=0.3),
+            tio.RandomBiasField(p=0.5),
+            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.5),
+            tio.RandomNoise(std=(0,0.25), p=0.5),
+            tio.RandomBlur(std=(0,2), p=0.5),
+            # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=1),
             # tio.RandomAffine(scales=(0.9,1.1), degrees=1, p=1),
             # tio.RandomElasticDeformation(
             #     num_control_points=7, max_displacement=(5,5,0),
-            #     locked_borders=2, p=0.3
+            #     locked_borders=2, p=1
             # ),
-            # tio.RandomFlip(axes=('Height',), p=0.5),
+            # tio.RandomFlip(axes=('LR',), p=1),
         ]
-        random_order_aug = RandomOrderTorchIO(tio_augs, p=1)
+        random_order_aug = RandomOrderTorchIO(tio_augs, p=0.8)
         wrapper = TorchIOWrapper(random_order_aug)
 
         # 2) Put it behind a RandomApply gate:
@@ -342,7 +342,7 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
                 shear=10,
             ),
             transforms.RandomVerticalFlip(p=0.5),
-        ]), p=0.6)
+        ]), p=0.8)
 
         if self.purpose == 'train' and self.use_augmentation:
             base.append(aug_gate)
@@ -388,9 +388,9 @@ class TdludatasetTorchioFourViewMetaAvgFolds(Dataset):
         return views_tensor, meta, label, file_names
 
 if __name__ == "__main__":
-    ds = TdludatasetTorchioFourViewMetaAvgFolds(
-        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+    train_ds = TdludatasetTorchioFourViewMetaAvgFolds(
+        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density_extreme_zero',
         label=True,
@@ -401,9 +401,22 @@ if __name__ == "__main__":
         val_fold=1
     )
 
+    val_ds = TdludatasetTorchioFourViewMetaAvgFolds(
+        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        num_bins=3,
+        target='tdlu_density_extreme_zero',
+        label=True,
+        zero=False,
+        meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
+        purpose='validation',
+        cross_val_fold=0,
+        val_fold=1
+    )
+
     idx=3
     
-    views, meta, label, filenames = ds[idx]
+    views, meta, label, filenames = train_ds[idx]
     # statistics used in your Normalize
     mean = torch.tensor([0.113, 0.113, 0.113])[:, None, None]
     std  = torch.tensor([0.185, 0.185, 0.185])[:, None, None]
@@ -424,4 +437,28 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
-    plt.savefig('views.png', dpi=300)
+    plt.savefig('train views.png', dpi=300)
+
+
+    views, meta, label, filenames = val_ds[idx]
+    # statistics used in your Normalize
+    mean = torch.tensor([0.113, 0.113, 0.113])[:, None, None]
+    std  = torch.tensor([0.185, 0.185, 0.185])[:, None, None]
+
+    fig, axes = plt.subplots(1, len(views), figsize=(16,4))
+    for i, (v, fname) in enumerate(zip(views, filenames)):
+        # un-normalize
+        img = v * std + mean               # still [3,H,W]
+        img = img.clamp(0,1)               # ensure in [0,1]
+        img = img.permute(1,2,0).cpu().numpy()  # → H×W×3
+
+        # if you want grayscale, average the channels:
+        gray = img.mean(-1)
+
+        axes[i].imshow(gray, cmap='gray')
+        axes[i].set_title(fname.split('.')[0])
+        axes[i].axis('off')
+
+    plt.tight_layout()
+    plt.show()
+    plt.savefig('val views.png', dpi=300)
