@@ -1,0 +1,44 @@
+augment: true
+batch_size: 12
+cross_val_fold: 0
+csv_path: /beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv
+dataset_name: TDLUDataset_torchio_four_view_folds
+device: cuda
+enable_checkpointing: true
+experiment_name: config_torchio_2bins_tdlu_extreme_four_views_fold_0_focalloss_full_aug_gamma_1_p=0.8
+focal_loss_alpha:
+- 0.6600688468158348
+- 2.0618279569892475
+focal_loss_gamma: 1
+freeze_backbone: false
+image_dir: /beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16
+label: true
+log_dir: /beacon-scratch/tuxunlu/git/tdlu/runs
+log_every_n_steps: 1
+loss:
+- FocalLoss
+loss_weight:
+- 1.0
+lr: 5.0e-4
+lr_decay_epochs: 100
+lr_decay_min_lr: 5.0e-06
+lr_scheduler: cyclic
+mamm_only: true
+max_epochs: 1000
+model_class_name: MGModule_four_view
+num_bins: 2
+num_save: 20
+num_workers: 12
+persistent_workers: false
+pin_memory: false
+pretrained_path: /beacon-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
+resume_from_last_checkpoint: null
+resume_from_manual_checkpoint: null
+run_dir: ./runs
+seed: 1234
+target: tdlu_density_extreme
+test_batch_size: 1
+use_compile: true
+weight_decay: 0.001
+weights_json_path: null
+zero: false
