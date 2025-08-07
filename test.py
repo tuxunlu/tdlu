@@ -122,17 +122,21 @@ def main():
 
                 votes = logits.argmax(dim=2)  # [B, TTA]
                 preds = votes.mode(dim=1).values  # [B]
+            elif len(test_input) == 1:
+                test_out = model_module(test_input[0])
+                test_logits, test_fused_feature = test_out
+                preds = test_logits.argmax(dim=1)
             else:
                 test_out = model_module(*test_input)
                 test_logits, test_fused_feature = test_out
                 
                 preds = test_logits.argmax(dim=1)
                 breast_density = test_input[1][:, 0].cpu().numpy()
+                all_breast_density.append(breast_density)
 
             # all_probs.append(probs.cpu().numpy())
             all_preds.append(preds.cpu().numpy())
             all_targets.append(test_labels.cpu().numpy())
-            all_breast_density.append(breast_density)
 
     all_preds   = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)
@@ -221,75 +225,75 @@ def main():
     # plt.savefig("roc_curves.png", dpi=300)
     # plt.close()
 
-    # — Saliency & Grad-CAM for multi-view inputs —
-    dataset = loader.dataset
-    num_vis = config.get('num_visualizations', 5)
-    indices = random.sample(range(len(dataset)), num_vis)
-    for idx in indices:
-        # 1) Load one sample: images (V, C, H, W), target_unused
-        images, _, filename = dataset[idx]                # torch.Tensor (4, C, H, W)
-        V, C, H, W = images.shape
+    # # — Saliency & Grad-CAM for multi-view inputs —
+    # dataset = loader.dataset
+    # num_vis = config.get('num_visualizations', 5)
+    # indices = random.sample(range(len(dataset)), num_vis)
+    # for idx in indices:
+    #     # 1) Load one sample: images (V, C, H, W), target_unused
+    #     images, _, filename = dataset[idx]                # torch.Tensor (4, C, H, W)
+    #     V, C, H, W = images.shape
 
-        # 2) Add batch dim and send to device
-        imgs = images.unsqueeze(0).to(device)   # (1, 4, C, H, W)
-        imgs.requires_grad_()
+    #     # 2) Add batch dim and send to device
+    #     imgs = images.unsqueeze(0).to(device)   # (1, 4, C, H, W)
+    #     imgs.requires_grad_()
 
-        # 3) Forward to get logits
-        out, _ = model_module(imgs)               # (1, 2)
-        pred = out.argmax(dim=1).item()         # scalar 0 or 1
+    #     # 3) Forward to get logits
+    #     out, _ = model_module(imgs)               # (1, 2)
+    #     pred = out.argmax(dim=1).item()         # scalar 0 or 1
 
-        # # — Grad-CAM (single heatmap) —
-        # cam = grad_cam_multi(
-        #     model_module,
-        #     imgs,
-        #     pred,
-        #     model_module.model.backbone._modules["7"]
-        # )
-        # # resize to input H×W
-        # cam_resized = cv2.resize(cam, (W, H))
+    #     # # — Grad-CAM (single heatmap) —
+    #     # cam = grad_cam_multi(
+    #     #     model_module,
+    #     #     imgs,
+    #     #     pred,
+    #     #     model_module.model.backbone._modules["7"]
+    #     # )
+    #     # # resize to input H×W
+    #     # cam_resized = cv2.resize(cam, (W, H))
 
-        # — Saliency (per view) —
-        model_module.zero_grad()
-        imgs.grad = None
-        out[0, pred].backward(retain_graph=True)
-        # grads: (1,4,C,H,W)
-        grads = imgs.grad.abs().cpu().squeeze(0)    # (4,C,H,W)
-        sals  = []
-        for v in range(V):
-            # max over channel dim → (H,W)
-            sal = grads[v].max(dim=0)[0]
-            sal = (sal - sal.min())/(sal.max()-sal.min()+1e-8)
-            sals.append(sal.numpy())
+    #     # — Saliency (per view) —
+    #     model_module.zero_grad()
+    #     imgs.grad = None
+    #     out[0, pred].backward(retain_graph=True)
+    #     # grads: (1,4,C,H,W)
+    #     grads = imgs.grad.abs().cpu().squeeze(0)    # (4,C,H,W)
+    #     sals  = []
+    #     for v in range(V):
+    #         # max over channel dim → (H,W)
+    #         sal = grads[v].max(dim=0)[0]
+    #         sal = (sal - sal.min())/(sal.max()-sal.min()+1e-8)
+    #         sals.append(sal.numpy())
 
-        # # — Plot Grad-CAM grid —
-        # fig, axes = plt.subplots(2,2,figsize=(8,8))
-        # for v, ax in enumerate(axes.flatten()):
-        #     # extract view v image
-        #     img_np = imgs.cpu().squeeze(0)[v].permute(1,2,0).numpy()
-        #     if C==1:
-        #         ax.imshow(img_np.squeeze(), cmap='gray')
-        #     else:
-        #         ax.imshow(img_np)
-        #     ax.imshow(cam_resized, cmap='jet', alpha=0.5)
-        #     ax.set_title(f"Grad-CAM View {v}")
-        #     ax.axis('off')
-        # plt.tight_layout()
-        # plt.savefig(f"gradcam_{idx}.png", dpi=300)
-        # plt.close()
+    #     # # — Plot Grad-CAM grid —
+    #     # fig, axes = plt.subplots(2,2,figsize=(8,8))
+    #     # for v, ax in enumerate(axes.flatten()):
+    #     #     # extract view v image
+    #     #     img_np = imgs.cpu().squeeze(0)[v].permute(1,2,0).numpy()
+    #     #     if C==1:
+    #     #         ax.imshow(img_np.squeeze(), cmap='gray')
+    #     #     else:
+    #     #         ax.imshow(img_np)
+    #     #     ax.imshow(cam_resized, cmap='jet', alpha=0.5)
+    #     #     ax.set_title(f"Grad-CAM View {v}")
+    #     #     ax.axis('off')
+    #     # plt.tight_layout()
+    #     # plt.savefig(f"gradcam_{idx}.png", dpi=300)
+    #     # plt.close()
 
-        # — Plot Saliency grid —
-        fig, axes = plt.subplots(2,2,figsize=(8,8))
-        for v, ax in enumerate(axes.flatten()):
-            sal_im = ax.imshow(sals[v], cmap='hot')
-            ax.set_title(f"Saliency View {v}")
-            ax.axis('off')
-        fig.colorbar(sal_im, ax=axes.ravel().tolist(),
-                 orientation='vertical',
-                 fraction=0.02, pad=0.01,
-                 label='Saliency intensity')
-        plt.tight_layout()
-        # plt.savefig(f"saliency_{filename}.png", dpi=300)
-        plt.close()
+    #     # — Plot Saliency grid —
+    #     fig, axes = plt.subplots(2,2,figsize=(8,8))
+    #     for v, ax in enumerate(axes.flatten()):
+    #         sal_im = ax.imshow(sals[v], cmap='hot')
+    #         ax.set_title(f"Saliency View {v}")
+    #         ax.axis('off')
+    #     fig.colorbar(sal_im, ax=axes.ravel().tolist(),
+    #              orientation='vertical',
+    #              fraction=0.02, pad=0.01,
+    #              label='Saliency intensity')
+    #     plt.tight_layout()
+    #     # plt.savefig(f"saliency_{filename}.png", dpi=300)
+    #     plt.close()
 
 
 if __name__ == '__main__':

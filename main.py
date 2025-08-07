@@ -131,7 +131,7 @@ def main(config):
     trainer_kwargs['log_every_n_steps'] = config['log_every_n_steps']
     
     # Instantiate the Trainer.
-    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp_find_unused_parameters_true", gradient_clip_val=0.5, **trainer_kwargs)
+    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp_find_unused_parameters_true", gradient_clip_val=0.5, detect_anomaly=True, **trainer_kwargs)
     
     # Launch training. Use ckpt_path if resuming from a checkpoint.
 
