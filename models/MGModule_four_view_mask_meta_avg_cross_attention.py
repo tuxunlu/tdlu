@@ -45,7 +45,7 @@ def init_weights(m):
         init.ones_(m.weight)
         init.zeros_(m.bias)
 
-class MgmoduleFourViewStackedMaskMetaAvgCrossAttention(nn.Module):
+class MgmoduleFourViewMaskMetaAvgCrossAttention(nn.Module):
     """
     Model that encodes 4 mammogram views with shared backbone, fuses via transformer,
     and outputs logits for classification.
@@ -71,14 +71,13 @@ class MgmoduleFourViewStackedMaskMetaAvgCrossAttention(nn.Module):
         # copy RGB weights and set the extra channel to the mean of RGB weights.
         old_conv = resnet.conv1
         new_conv = nn.Conv2d(
-            in_channels=5, out_channels=old_conv.out_channels,
+            in_channels=4, out_channels=old_conv.out_channels,
             kernel_size=old_conv.kernel_size, stride=old_conv.stride,
             padding=old_conv.padding, bias=False
         )
         with torch.no_grad():
             new_conv.weight[:, :3, :, :] = old_conv.weight
             new_conv.weight[:, 3:4, :, :] = old_conv.weight.mean(dim=1, keepdim=True)
-            new_conv.weight[:, 4:5, :, :] = old_conv.weight.mean(dim=1, keepdim=True)
         resnet.conv1 = new_conv
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         self.feature_dim = resnet.fc.in_features  # typically 512
@@ -139,18 +138,22 @@ class MgmoduleFourViewStackedMaskMetaAvgCrossAttention(nn.Module):
             logits = self.classification_head(meta_feats)   # [B, num_bins]
             return logits, meta_feats
 
-        B, C, H, W = views.shape
-        assert C == 4, f"Expected 4 channels, got {C}"
+        B, V, C, H, W = views.shape
+        assert C == 3, f"Expected 3 channels, got {C}"
+        assert V == 4, f"Expected 4 views, got {V}"
 
-        # Add mask as the 5th channel
-        views = torch.cat([views, mask], dim=1)
+        # Add mask as the 4th channel
+        views = torch.cat([views, mask], dim=2)
+
+        views = views.view(B * V, C + 1, H, W)  # [B*V, 4, H, W]
 
         # Flatten batch and view dims to encode all views
-        view_tokens = self.backbone(views).flatten(1).unsqueeze(1)           # [B, 1, 2048]
+        view_tokens = self.backbone(views).flatten(1)           # [B*V, D]
+        view_tokens = view_tokens.view(B, V, self.feature_dim)        # [B, V, D]
 
         # 3) global meta-token
         meta = meta[:, 0:3]
-        meta_token = self.global_meta(meta).unsqueeze(1)           # [B, 1, 2048]
+        meta_token = self.global_meta(meta).unsqueeze(1)           # [B, 1, D]
 
         # 4) transformer fusion
         fused_seq   = self.decoder(tgt=meta_token, memory=view_tokens)
@@ -166,8 +169,8 @@ class MgmoduleFourViewStackedMaskMetaAvgCrossAttention(nn.Module):
 if __name__ == "__main__":
     model = MgmoduleFourViewStackedMaskMetaAvgCrossAttention(num_bins=2)
     # dummy 4-view batch + dummy meta
-    dummy_views = torch.randn(8, 4, 1024, 1024)
-    dummy_mask = torch.randn(8, 1, 1024, 1024)
+    dummy_views = torch.randn(8, 4, 3, 1024, 1024)
+    dummy_mask = torch.randn(8, 4, 1, 1024, 1024)
     dummy_meta  = torch.randn(8, 3)  # e.g. [Breast density, age, BMI, ancestry]
     logits, fused = model(dummy_views, dummy_mask, dummy_meta)
     print("logits:", logits.shape)   # (8, 2)
