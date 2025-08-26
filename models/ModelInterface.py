@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 from .loss.OhemCELoss import OhemCELoss
 from .loss.FocalLoss import FocalLoss
-from torchmetrics.classification import MulticlassF1Score
+from torchmetrics.classification import MulticlassF1Score, MulticlassAccuracy
 
 class ModelInterface(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -23,6 +23,10 @@ class ModelInterface(pl.LightningModule):
         self.val_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
         self.test_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
 
+        self.train_acc = MulticlassAccuracy(num_classes=self.hparams.num_bins)
+        self.val_acc   = MulticlassAccuracy(num_classes=self.hparams.num_bins)
+        self.test_acc  = MulticlassAccuracy(num_classes=self.hparams.num_bins)
+
     def forward(self, x, *args, **kwargs):
         return self.model(x, *args, **kwargs)
 
@@ -30,22 +34,20 @@ class ModelInterface(pl.LightningModule):
         # Expect batch to be: (train_input, *other_inputs, train_labels)
         *train_input, train_labels, train_filenames = batch
         train_out = self(*train_input)
-        # Assume model returns logits (possibly with additional outputs)
+
         train_logits, train_fused_feature = train_out
-        # Compute loss using the configured loss function.
         
         train_loss = self.loss_function(train_logits, train_labels, 'train')
 
         # Get predicted class labels.
         out_label = train_logits.argmax(dim=1)
-        correct_num = torch.sum(train_labels == out_label).float()
-        batch_acc = correct_num / out_label.size(0)
 
         self.train_f1.update(out_label, train_labels)
-
+        self.train_acc.update(train_logits, train_labels)
+    
         # Also log loss in a way that aggregates over the epoch if desired.
         self.log('train_loss', train_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log('train_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_acc', self.train_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('train_f1', self.train_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         # Save the batch predictions for epoch-level aggregation.
@@ -61,64 +63,52 @@ class ModelInterface(pl.LightningModule):
         from batch predictions, logs a bar plot, and logs the current learning rate.
         """
         # Aggregate all training labels from the epoch.
-        if self._train_labels:
-            all_labels = torch.cat(self._train_labels)
-            # Determine the number of bins from hyperparameters or infer from the data.
-            num_bins = self.hparams.num_bins if hasattr(self.hparams, "num_bins") else (all_labels.max().item() + 1)
-            class_counts = torch.bincount(all_labels, minlength=num_bins)
+        # if self._train_labels:
+        #     all_labels = torch.cat(self._train_labels)
+        #     # Determine the number of bins from hyperparameters or infer from the data.
+        #     num_bins = self.hparams.num_bins if hasattr(self.hparams, "num_bins") else (all_labels.max().item() + 1)
+        #     class_counts = torch.bincount(all_labels, minlength=num_bins)
 
-            # Create a bar plot for the class distribution.
-            fig, ax = plt.subplots()
-            ax.bar(range(num_bins), class_counts.numpy())
-            ax.set_xlabel("Class")
-            ax.set_ylabel("Count")
-            ax.set_title(f"Class Distribution in Epoch {self.current_epoch}")
-            # Log the figure to the logger (if supported).
-            if self.logger is not None and hasattr(self.logger.experiment, "add_figure"):
-                self.logger.experiment.add_figure("Class_Distribution", fig, global_step=self.current_epoch)
-            plt.close(fig)
+        #     # Create a bar plot for the class distribution.
+        #     fig, ax = plt.subplots()
+        #     ax.bar(range(num_bins), class_counts.numpy())
+        #     ax.set_xlabel("Class")
+        #     ax.set_ylabel("Count")
+        #     ax.set_title(f"Class Distribution in Epoch {self.current_epoch}")
+        #     # Log the figure to the logger (if supported).
+        #     if self.logger is not None and hasattr(self.logger.experiment, "add_figure"):
+        #         self.logger.experiment.add_figure("Class_Distribution", fig, global_step=self.current_epoch)
+        #     plt.close(fig)
         
         # Clear the list for the next epoch.
         self._train_labels = []
 
     def validation_step(self, batch, batch_idx):
-        *val_input, val_labels, val_filenames = batch
-        val_out = self(*val_input)
-        val_logits, val_fused_feature = val_out
+        *val_input, val_labels, _ = batch
+        val_logits, _ = self(*val_input)
+
         val_loss = self.loss_function(val_logits, val_labels, 'validation')
 
-        out_label = val_logits.argmax(dim=1)
-        correct_num = torch.sum(val_labels == out_label).float()
-        batch_acc = correct_num / out_label.size(0)
+        # Update metrics with logits (TorchMetrics will argmax internally)
+        self.val_f1.update(val_logits, val_labels)
+        self.val_acc.update(val_logits, val_labels)
 
-        self.val_f1.update(out_label, val_labels)
-
-        self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log('val_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log('val_f1', self.val_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-
+        # Only log the loss here
+        self.log('val_loss', val_loss, on_step=False, on_epoch=True,
+                 prog_bar=True, sync_dist=True)
         return val_loss
+
+    def on_validation_epoch_end(self):
+        # Compute once, TorchMetrics handles state syncing & sample counts
+        f1  = self.val_f1.compute()
+        acc = self.val_acc.compute()
+        self.log('val_f1',  f1,  prog_bar=True, sync_dist=True)
+        self.log('val_acc', acc, prog_bar=True, sync_dist=True)
+        self.val_f1.reset(); self.val_acc.reset()
+        return
 
     def test_step(self, batch, batch_idx):
         *test_input, test_labels, test_filenames = batch
-
-        # # If TTA: inputs shaped [B, TTA, 4, 3, H, W]
-        # if test_input[0].dim() == 6:
-        #     b, tta, v, c, h, w = test_input.shape
-        #     # flatten batch & TTA into one big batch
-        #     flat = test_input.view(b*tta, v, c, h, w)
-        #     logits, _ = self(flat)  # (b*tta, num_classes)
-        #     # reshape back to [B, TTA, C]
-        #     logits = logits.view(b, tta, -1)
-        #     # average logits across TTA dimension
-
-        #     votes = logits.argmax(dim=2)
-        #     out_label, _ = torch.mode(votes, dim=1)
-
-        #     test_logits = logits.mean(dim=1)
-        #     # out_label = test_logits.argmax(dim=1)
-        #     test_loss = self.loss_function(test_logits, test_labels, 'test')
-        # else:
         test_out = self(*test_input)
         test_logits, test_fused_feature = test_out
         test_loss = self.loss_function(test_logits, test_labels, 'test')
@@ -127,15 +117,12 @@ class ModelInterface(pl.LightningModule):
 
         # Print sample predictions for debugging.
         print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_labels[:10].tolist()}")
-        
 
-        correct_num = torch.sum(test_labels == out_label).float()
-        batch_acc = correct_num / out_label.size(0)
-
+        self.test_acc.update(test_logits, test_labels)
         self.test_f1.update(out_label, test_labels)
 
         self.log('test_loss', test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('test_acc', batch_acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('test_acc', self.test_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('test_f1', self.test_f1, on_step=False, on_epoch=True, prog_bar=True)
 
         return test_loss
@@ -183,13 +170,6 @@ class ModelInterface(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def __calculate_loss_and_log(self, inputs, labels, loss_dict: Dict[str, Tuple[float, Callable]], stage: str):
-        # if stage == 'train':
-        #     # for _, func in loss_dict.values():
-        #     #     new_w = torch.tensor([0.6600688468158348, 2.0618279569892475], device=inputs.device)
-        #         # func.register_buffer('weight', new_w)
-        # else:
-        #     for _, func in loss_dict.values():
-        #         func.register_buffer('weight', None)
         raw_loss_list = [func(inputs, labels) for _, func in loss_dict.values()]
         weighted_loss = [weight * raw_loss for (weight, _), raw_loss in zip(loss_dict.values(), raw_loss_list)]
         for name, raw_loss in zip(loss_dict.keys(), raw_loss_list):
@@ -201,9 +181,6 @@ class ModelInterface(pl.LightningModule):
         # Configure loss functions based on hyperparameters.
         config_loss_weight = self.hparams.loss_weight
         config_loss_names = self.hparams.loss
-        # config_label_smoothing = self.hparams.label_smoothing
-
-        # config_loss_funcs = [getattr(importlib.import_module('torch.nn'), name)() for name in self.hparams.loss]
         config_loss_funcs = []
         for name in self.hparams.loss:
             if name == 'FocalLoss':
