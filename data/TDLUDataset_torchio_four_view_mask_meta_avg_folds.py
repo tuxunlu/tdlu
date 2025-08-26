@@ -275,9 +275,8 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         for combo in self.allowed_combos:
             fname = data['combos'][combo]          # get the filename
 
-            mask_path = os.path.join(self.mask_dir, f"Masks_{fname.replace('.png', '')}-new.mat")
-            mask = sio.loadmat(mask_path, squeeze_me=True, struct_as_record=False)['res'].DenseMask
-            mask = torch.as_tensor(np.array(mask), dtype=torch.uint8)
+            mask_path = os.path.join(self.mask_dir, f"Masks_{fname.replace('.png', '')}-new.npy")
+            mask = torch.as_tensor(np.load(mask_path), dtype=torch.bool)
             img_path = os.path.join(self.image_dir, fname)
             img = Image.open(img_path)
             img = TF.convert_image_dtype(transforms.PILToTensor()(img), torch.float32)
@@ -288,7 +287,6 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
                 # still ensure same resize rule when no random augs:
                 img  = TF.resize(img,  (1024, 1024), interpolation=InterpolationMode.BILINEAR)
                 mask = TF.resize(mask.unsqueeze(0), (1024, 1024), interpolation=InterpolationMode.NEAREST).squeeze(0)
-                mask = (mask > 0).to(torch.bool)
             
             img = img.repeat(3, 1, 1)
             # normalize image only (keep mask categorical)
@@ -327,9 +325,9 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         return views_tensor, masks_tensor, meta, label, file_names
 
 if __name__ == "__main__":
-    train_ds = TdludatasetTorchioFourViewStackedMaskMetaAvgFolds(
+    train_ds = TdludatasetTorchioFourViewMaskMetaAvgFolds(
         image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        mask_dir = '/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks',
+        mask_dir = '/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy',
         csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density',
@@ -339,9 +337,9 @@ if __name__ == "__main__":
         cross_val_fold=0,
     )
 
-    val_ds = TdludatasetTorchioFourViewStackedMaskMetaAvgFolds(
+    val_ds = TdludatasetTorchioFourViewMaskMetaAvgFolds(
         image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        mask_dir = '/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks',
+        mask_dir = '/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy',
         csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density',
