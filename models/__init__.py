@@ -1,1 +1,2 @@
 from .ModelInterface import ModelInterface
+from .ModelInterfaceAux import ModelInterfaceAux

@@ -9,20 +9,13 @@ from argparse import ArgumentParser
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from models import ModelInterface
+from models import ModelInterface, ModelInterfaceAux
 from data import DataInterface
 
 
 def load_callbacks(config):
     callbacks = []
-    # # Early stopping: monitor validation accuracy and stop training if it stops improving.
-    # callbacks.append(plc.EarlyStopping(
-    #     monitor='validation_CrossEntropyLoss',
-    #     mode='max',
-    #     patience=10,
-    #     min_delta=0.001
-    # ))
-    
+
     # Checkpointing callbacks.
     if config.get('enable_checkpointing', False):
         # Save best checkpoint (monitoring validation accuracy).
@@ -100,7 +93,11 @@ def main(config):
     
     # Instantiate the data module and Lightning model.
     data_module = DataInterface(**config)
-    model_module = ModelInterface(**config)
+
+    if config['model_interface'] == "ModelInterface":
+        model_module = ModelInterface(**config)
+    elif config['model_interface'] == "ModelInterfaceAux":
+        model_module = ModelInterfaceAux(**config)
     
     # Determine whether to resume from a checkpoint.
     checkpoint_directory, checkpoint_file_path = (None, None)
@@ -131,17 +128,7 @@ def main(config):
     trainer_kwargs['log_every_n_steps'] = config['log_every_n_steps']
     
     # Instantiate the Trainer.
-    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp_find_unused_parameters_true", gradient_clip_val=0.5, detect_anomaly=True, **trainer_kwargs)
-    
-    # Launch training. Use ckpt_path if resuming from a checkpoint.
-
-    # # Optionally load a model weight.
-    # if config.get('model_weight_path', None) is not None:
-    #     if not os.path.exists(config['model_weight_path']):
-    #         raise FileNotFoundError(f"Model weight file not found at {config['model_weight_path']}")
-    #     ckpt = torch.load(config['model_weight_path'])
-    #     model_module.load_state_dict(ckpt["state_dict"])
-    #     print(f"Loaded model weights from {config['model_weight_path']}")
+    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp_find_unused_parameters_true", detect_anomaly=True, **trainer_kwargs)
 
     trainer.fit(model=model_module, datamodule=data_module, ckpt_path=checkpoint_file_path)
 

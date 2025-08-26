@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 from pytorch_lightning import Trainer
 import pytorch_lightning as pl
 from data import DataInterface
-from models import ModelInterface
+from models import ModelInterface, ModelInterfaceAux
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.preprocessing import label_binarize
 
@@ -108,40 +108,40 @@ def main():
     
     loader = test_loader
 
-    with torch.no_grad():
-        for *test_input, test_labels, test_filenames in loader:
-            test_input = [t.to(device) for t in test_input]
-            if test_input[0].dim() == 6:
-                b, tta, v, c, h, w = test_input.shape
-                # flatten batch & TTA into one big batch
-                flat = test_input.view(b*tta, v, c, h, w)
-                logits, _ = model_module(flat.to(device))
-                # reshape back to [B, TTA, C]
-                logits = logits.view(b, tta, -1)
-                # average logits across TTA dimension
+    # with torch.no_grad():
+    #     for *test_input, target_label, aux_target_label, file_names in loader:
+    #         test_input = [t.to(device) for t in test_input]
+            
+    #         test_out = model_module(*test_input)
+    #         test_logits_target, test_logits_aux_target, test_fused_feature = test_out
+    #         preds = test_logits_target.argmax(dim=1)
 
-                votes = logits.argmax(dim=2)  # [B, TTA]
-                preds = votes.mode(dim=1).values  # [B]
-            elif len(test_input) == 1:
-                test_out = model_module(test_input[0])
-                test_logits, test_fused_feature = test_out
-                preds = test_logits.argmax(dim=1)
-            else:
-                test_out = model_module(*test_input)
-                test_logits, test_fused_feature = test_out
-                
-                preds = test_logits.argmax(dim=1)
-                breast_density = test_input[1][:, 0].cpu().numpy()
-                all_breast_density.append(breast_density)
+    #         breast_density = test_input[1][:, 0].cpu().numpy()
+    #         all_breast_density.append(breast_density)
+
+    #         # all_probs.append(probs.cpu().numpy())
+    #         all_preds.append(preds.cpu().numpy())
+    #         all_targets.append(target_label.cpu().numpy())
+
+    with torch.no_grad():
+        for *test_input, label, file_names in loader:
+            test_input = [t.to(device) for t in test_input]
+            
+            test_out = model_module(*test_input)
+            test_logits_target, test_fused_feature = test_out
+            preds = test_logits_target.argmax(dim=1)
+
+            # breast_density = test_input[1][:, 0].cpu().numpy()
+            # all_breast_density.append(breast_density)
 
             # all_probs.append(probs.cpu().numpy())
             all_preds.append(preds.cpu().numpy())
-            all_targets.append(test_labels.cpu().numpy())
+            all_targets.append(label.cpu().numpy())
 
     all_preds   = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)
     # all_probs   = np.concatenate(all_probs, axis=0)
-    all_breast_density = np.concatenate(all_breast_density, axis=0)
+    # all_breast_density = np.concatenate(all_breast_density, axis=0)
 
     # Convert one-hot back to integer labels if needed
     if all_targets.ndim > 1:
@@ -157,19 +157,19 @@ def main():
     
     # --- new: compute average density per cell ---
     num_bins = cm.shape[0]
-    avg_density = np.full_like(cm, np.nan, dtype=float)
-    for i in range(num_bins):
-        for j in range(num_bins):
-            mask = (all_targets == i) & (all_preds == j)
-            if np.any(mask):
-                avg_density[i, j] = all_breast_density[mask].mean()
+    # avg_density = np.full_like(cm, np.nan, dtype=float)
+    # for i in range(num_bins):
+    #     for j in range(num_bins):
+    #         mask = (all_targets == i) & (all_preds == j)
+    #         if np.any(mask):
+    #             avg_density[i, j] = all_breast_density[mask].mean()
 
-    std_density = np.full_like(cm, np.nan, dtype=float)
-    for i in range(num_bins):
-        for j in range(num_bins):
-            mask = (all_targets == i) & (all_preds == j)
-            if np.any(mask):
-                std_density[i, j] = all_breast_density[mask].std()
+    # std_density = np.full_like(cm, np.nan, dtype=float)
+    # for i in range(num_bins):
+    #     for j in range(num_bins):
+    #         mask = (all_targets == i) & (all_preds == j)
+    #         if np.any(mask):
+    #             std_density[i, j] = all_breast_density[mask].std()
 
     # plotting
     plt.figure(figsize=(8,6))
@@ -185,16 +185,16 @@ def main():
         for j in range(num_bins):
             count = cm[i, j]
             pct   = cm_norm[i, j] * 100
-            mean_den = avg_density[i, j]
-            if np.isnan(mean_den):
-                den_str = "–"
-                std_str = "–"
-            else:
-                den_str = f"mean: {mean_den:.2f}"
-                std_str = f"std: {std_density[i, j]:.2f}" if not np.isnan(std_density[i, j]) else "–"
+            # mean_den = avg_density[i, j]
+            # if np.isnan(mean_den):
+            #     den_str = "–"
+            #     std_str = "–"
+            # else:
+            #     den_str = f"mean: {mean_den:.2f}"
+            #     std_str = f"std: {std_density[i, j]:.2f}" if not np.isnan(std_density[i, j]) else "–"
             plt.text(
                 j, i,
-                f"{count}\n({pct:.1f}%)\n{den_str}\n{std_str}",
+                f"{count}\n({pct:.1f}%)",
                 ha='center', va='center',
                 color='white' if cm_norm[i, j] > thresh else 'black'
             )

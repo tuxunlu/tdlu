@@ -13,6 +13,7 @@ import torch
 import pickle
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
+from sklearn.metrics import f1_score
 
 
 def dataset_to_xy(torch_dataset, batch_size=512, num_workers=12):
@@ -60,50 +61,45 @@ def dataset_to_xy(torch_dataset, batch_size=512, num_workers=12):
     return df, y
 
 if __name__ == "__main__":
-    test = False
+    test = True
+    fold = 5
     
     train_dataset = TdludatasetTorchioFourViewMetaAvgFolds(
-        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density_extreme_zero',
-        label=True,
-        zero=False,
+        label_type="label",
         meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='train',
-        cross_val_fold=0,
-        val_fold=1
+        cross_val_fold=fold,
     )
     val_dataset = TdludatasetTorchioFourViewMetaAvgFolds(
-        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density_extreme_zero',
-        label=True,
-        zero=False,
+        label_type="label",
         meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='validation',
-        cross_val_fold=0,
-        val_fold=1
+        cross_val_fold=fold,
     )
     test_dataset = TdludatasetTorchioFourViewMetaAvgFolds(
-        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density_extreme_zero',
-        label=True,
-        zero=False,
+        label_type="label",
         meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='test',
-        cross_val_fold=0,
-        val_fold=1
+        cross_val_fold=fold,
     )
 
     if test is False:
         numeric_features = ["breast_density", "bmi", "age", "race"]
         numeric_transformer = Pipeline([
             ("scaler", StandardScaler())
-        ])  
+        ])
 
         preprocessor = ColumnTransformer([
             ("num", numeric_transformer, numeric_features),
@@ -187,7 +183,9 @@ if __name__ == "__main__":
 
         # — Accuracy —
         accuracy = (all_preds == all_targets).mean()
+        f1_macro = f1_score(all_targets, all_preds, average='macro')
         print(f"Overall test accuracy: {accuracy:.4f}")
+        print(f"F1-score (macro): {f1_macro:.4f}")
 
         # — Confusion matrix —
         cm = confusion_matrix(all_targets, all_preds)
