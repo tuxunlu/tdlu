@@ -133,7 +133,6 @@ class MgmoduleFourViewMetaAvgCrossAttentionGap(nn.Module):
 
         B, V, C, H, W = views.shape
         assert V == self.num_views, f"Expected {self.num_views} views, got {V}"
-        assert masks.shape[:3] == (B, V, H), "masks must be [B,V,H,W]"
 
         # encode each view with shared backbone (vectorized as big batch)
         x = views.view(B * V, C, H, W)
@@ -156,6 +155,7 @@ class MgmoduleFourViewMetaAvgCrossAttentionGap(nn.Module):
         per_view_tok  = per_view_tok.view(B, V, -1)            # [B, V, E]
 
         # meta token (acts like CLS)
+        meta = meta[:, 1:4]
         meta_tok = self.global_meta(meta).unsqueeze(1)         # [B, 1, E]
 
         # fuse and classify

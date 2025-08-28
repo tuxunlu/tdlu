@@ -1,2 +1,3 @@
 from .ModelInterface import ModelInterface
 from .ModelInterfaceAux import ModelInterfaceAux
+from .ModelInterfaceAuxSaliency import ModelInterfaceAuxSaliency

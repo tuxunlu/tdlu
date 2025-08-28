@@ -145,7 +145,7 @@ class MgmoduleFourViewStackedMetaAvgCrossAttention(nn.Module):
         view_tokens = self.backbone(views).flatten(1).unsqueeze(1)           # [B, 1, 2048]
 
         # 3) global meta-token
-        meta = meta[:, 0:3]
+        meta = meta[:, 1:4]
         meta_token = self.global_meta(meta).unsqueeze(1)           # [B, 1, 2048]
 
         # 4) transformer fusion

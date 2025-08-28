@@ -326,9 +326,9 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
 
 if __name__ == "__main__":
     train_ds = TdludatasetTorchioFourViewMaskMetaAvgFolds(
-        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        mask_dir = '/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy',
-        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        mask_dir = '/beacon-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy',
+        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density',
         label_type='raw',
@@ -338,9 +338,9 @@ if __name__ == "__main__":
     )
 
     val_ds = TdludatasetTorchioFourViewMaskMetaAvgFolds(
-        image_dir='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
-        mask_dir = '/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy',
-        csv_path='/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        mask_dir = '/beacon-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy',
+        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
         num_bins=3,
         target='tdlu_density',
         label_type='raw',
