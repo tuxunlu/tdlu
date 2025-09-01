@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from models import ModelInterface, ModelInterfaceAux
+from models import ModelInterface, ModelInterfaceAux, ModelInterfaceAuxSaliency
 from data import DataInterface
 
 
@@ -20,23 +20,23 @@ def load_callbacks(config):
     if config.get('enable_checkpointing', False):
         # Save best checkpoint (monitoring validation accuracy).
         callbacks.append(plc.ModelCheckpoint(
-            monitor='val_f1',
+            monitor='val_f1_main',
             mode='max',
             save_top_k=1,
-            filename='best-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
+            filename='best-{epoch:03d}-{val_f1_main:.5f}-{val_acc_main:.5f}',
             verbose=True,
         ))
         # Save epoch checkpoint (latest model for each epoch).
         callbacks.append(plc.ModelCheckpoint(
             save_last=True,
-            filename='last-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
+            filename='last-{epoch:03d}-{val_f1_main:.5f}-{val_acc_main:.5f}',
         ))
         # Save all checkpoints.
         callbacks.append(plc.ModelCheckpoint(
-            every_n_epochs=10,
+            every_n_epochs=20,
             save_top_k=-1,
             save_on_train_epoch_end=True,
-            filename='epoch-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
+            filename='epoch-{epoch:03d}-{val_f1_main:.5f}-{val_acc_main:.5f}',
         ))
     
     # Learning rate monitor.
@@ -98,6 +98,8 @@ def main(config):
         model_module = ModelInterface(**config)
     elif config['model_interface'] == "ModelInterfaceAux":
         model_module = ModelInterfaceAux(**config)
+    elif config['model_interface'] == "ModelInterfaceAuxSaliency":
+        model_module = ModelInterfaceAuxSaliency(**config)
     
     # Determine whether to resume from a checkpoint.
     checkpoint_directory, checkpoint_file_path = (None, None)
@@ -128,7 +130,7 @@ def main(config):
     trainer_kwargs['log_every_n_steps'] = config['log_every_n_steps']
     
     # Instantiate the Trainer.
-    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp_find_unused_parameters_true", detect_anomaly=True, **trainer_kwargs)
+    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp", detect_anomaly=True, **trainer_kwargs)
 
     trainer.fit(model=model_module, datamodule=data_module, ckpt_path=checkpoint_file_path)
 
