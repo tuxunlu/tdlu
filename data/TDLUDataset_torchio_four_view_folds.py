@@ -17,6 +17,7 @@ import json
 import time
 
 from utils.ToTensor16RGB import ToTensor16RGB
+import matplotlib.pyplot as plt
 
 
 def bin_value_quantile(value, thresholds):
@@ -277,10 +278,10 @@ class TdludatasetTorchioFourViewFolds(Dataset):
 
         # 1) Build your RandomOrder pipeline (or Compose / OneOf, etc.)
         tio_augs = [
-            tio.RandomBiasField(p=0.5),
-            tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.5),
-            tio.RandomNoise(std=(0,0.25), p=0.5),
-            tio.RandomBlur(std=(0,2), p=0.5),
+            # tio.RandomBiasField(p=0.5),
+            # tio.RandomGamma(log_gamma=(-0.3,0.3), p=0.5),
+            # tio.RandomNoise(std=(0,0.25), p=0.5),
+            # tio.RandomBlur(std=(0,2), p=0.5),
             # tio.RandomSwap(patch_size=(1,32,32), num_iterations=1, p=1),
             # tio.RandomAffine(scales=(0.9,1.1), degrees=1, p=1),
             # tio.RandomElasticDeformation(
@@ -315,7 +316,7 @@ class TdludatasetTorchioFourViewFolds(Dataset):
                 scale=(0.9, 1.1),
                 shear=10,
             ),
-            transforms.RandomVerticalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=1),
         ]), p=0.8)
 
         if self.purpose == 'train' and self.use_augmentation:
@@ -356,13 +357,38 @@ class TdludatasetTorchioFourViewFolds(Dataset):
         return views_tensor, label, file_names
 
 if __name__ == "__main__":
-    ds = TdludatasetTorchioFourViewFolds(
-        image_dir='...',
-        csv_path='...',
-        num_bins=2,
-        target='tdlu_density',
-        purpose='validation',
+    train_ds = TdludatasetTorchioFourViewFolds(
+        image_dir='/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16',
+        csv_path='/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv',
+        num_bins=3,
+        target='tdlu_density_extreme',
+        label=True,
+        zero=False,
+        purpose='train',
         cross_val_fold=0,
         val_fold=1
     )
-    print(len(ds), ds[0][0].shape, ds)
+
+    mean = torch.tensor([0.113, 0.113, 0.113])[:, None, None]
+    std  = torch.tensor([0.185, 0.185, 0.185])[:, None, None]
+
+    idx = 101
+    views, label, filenames = train_ds[idx]
+
+    fig, axes = plt.subplots(1, len(views), figsize=(16,4))
+    for i, (v, fname) in enumerate(zip(views, filenames)):
+        # un-normalize
+        img = v * std + mean               # still [3,H,W]
+        img = img.clamp(0,1)               # ensure in [0,1]
+        img = img.permute(1,2,0).cpu().numpy()  # → H×W×3
+
+        # if you want grayscale, average the channels:
+        gray = img.mean(-1)
+
+        axes[i].imshow(gray, cmap='gray')
+        axes[i].set_title(fname.split('.')[0])
+        axes[i].axis('off')
+
+    plt.tight_layout()
+    plt.show()
+    plt.savefig('train views.png', dpi=300)

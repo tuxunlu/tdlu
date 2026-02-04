@@ -28,11 +28,13 @@ def init_weights(m):
         init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         if m.bias is not None:
             init.zeros_(m.bias)
-    elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.LayerNorm):
-        init.ones_(m.weight)
-        init.zeros_(m.bias)
+    elif isinstance(m, (nn.BatchNorm2d, nn.LayerNorm)):
+        if hasattr(m, 'weight') and m.weight is not None:
+            init.ones_(m.weight)
+        if hasattr(m, 'bias') and m.bias is not None:
+            init.zeros_(m.bias)
 
-class MgmoduleFourViewMetaAvg(nn.Module):
+class MgmoduleFourViewMetaAvgCrossAttentionAux(nn.Module):
     """
     Model that encodes 4 mammogram views with shared backbone, fuses via transformer,
     and outputs logits for classification.
@@ -44,17 +46,21 @@ class MgmoduleFourViewMetaAvg(nn.Module):
         transformer_embed_dim: int = 512,
         transformer_heads: int = 8,
         transformer_layers: int = 2,
-        num_meta_features: int = 4,
+        num_meta_features: int = 3,
         dropout_rate: float = 0.5,
         freeze_backbone: bool = False,
         pretrained_path: str = None,
-        model_weight_path: str = None
+        model_weight_path: str = None,
+        meta_only: bool = False
     ):
         super().__init__()
         # Load ResNet18 backbone without final FC
         resnet = torchvision.models.resnet18(weights=None)
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         self.feature_dim = resnet.fc.in_features  # typically 512
+        self.num_views = num_views
+
+        self.meta_only = meta_only
 
         # Optional pretrained loading
         if pretrained_path:
@@ -71,32 +77,38 @@ class MgmoduleFourViewMetaAvg(nn.Module):
                     p.requires_grad = True  # conv1, bn1, maxpool
 
         self.global_meta = nn.Sequential(
-            nn.Linear(4, 512),
-            nn.LayerNorm(512),
+            nn.Linear(num_meta_features, transformer_embed_dim),
+            nn.LayerNorm(transformer_embed_dim),
             nn.GELU()
         )
 
         # Transformer for fusion
-        encoder_layer = nn.TransformerEncoderLayer(
+        decoder_layer = nn.TransformerDecoderLayer(
             d_model=transformer_embed_dim,
             nhead=transformer_heads,
             dropout=dropout_rate,
             batch_first=False,
         )
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=transformer_layers
-        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=transformer_layers)
 
         # Classification head after fusion
-        self.classification_head = ClassificationHead(
+        self.tdlu_density_head = ClassificationHead(
             input_dim=transformer_embed_dim,
             num_classes=num_bins,
             dropout_rate=dropout_rate
         )
+
+        self.breast_density_head = ClassificationHead(
+            input_dim=transformer_embed_dim,
+            num_classes=num_bins,
+            dropout_rate=dropout_rate
+        )
+
+        # Init
         self.global_meta.apply(init_weights)
-        self.transformer.apply(init_weights)
-        self.classification_head.apply(init_weights)
+        self.decoder.apply(init_weights)
+        self.tdlu_density_head.apply(init_weights)
+        self.breast_density_head.apply(init_weights)
 
     def _load_model_weight_backbone(self, model_weight_path: str):
         ckpt = torch.load(model_weight_path)
@@ -131,17 +143,25 @@ class MgmoduleFourViewMetaAvg(nn.Module):
         self.backbone._modules["7"]._modules["0"].load_state_dict(mirai_weight.layer4_0.state_dict())
         self.backbone._modules["7"]._modules["1"].load_state_dict(mirai_weight.layer4_1.state_dict())
 
-    def forward(self, views: torch.Tensor, density: torch.Tensor, meta: torch.Tensor):
+    def forward(self, views: torch.Tensor, meta: torch.Tensor):
         """
         views: Tensor of shape [B, V, C, H, W], where V=4 views.
-        density: Tensor of shape [B, 4] → [density]
         meta:  Tensor [B, 3] → the tabular [age, BMI, ancestry]
         Returns:
           logits: [B, num_bins]
           fused_features: [B, transformer_embed_dim]
         """
+        if self.meta_only:
+            assert meta is not None, "Metadata must be provided for meta-only mode"
+            meta_feats = self.global_meta(meta)              # [B, D]
+            logits = self.classification_head(meta_feats)   # [B, num_bins]
+            return logits, meta_feats
+        
+        # Discard Breast Density
+        meta = meta[:, 0:3]
+
         B, V, C, H, W = views.shape
-        assert V == 4, f"Expected 4 views, got {V}"
+        assert V == self.num_views, f"Expected {self.num_views} views, got {V}"
 
         # Flatten batch and view dims to encode all views
         x = views.view(B * V, C, H, W)
@@ -155,14 +175,15 @@ class MgmoduleFourViewMetaAvg(nn.Module):
         # 4) transformer fusion
         view_tokens = mamm_feats.permute(1,0,2)         # [V,B,D]
         seq         = torch.cat([view_tokens, meta_token], dim=0)
-        fused_seq   = self.transformer(seq)
+        fused_seq   = self.decoder(tgt=meta_token, memory=view_tokens)
 
         # Aggregate transformer outputs (e.g., mean pooling)
-        fused = fused_seq.mean(dim=0)             # [B, D]
+        fused = fused_seq.squeeze(0)             # [B, D]
 
-        # Classification
-        logits = self.classification_head(fused)  # [B, num_bins]
-        return logits, fused
+        # Heads
+        tdlu_logits = self.tdlu_density_head(fused)             # [B, num_bins]
+        bd_logits = self.breast_density_head(fused)               # [B, num_bins]
+        return tdlu_logits, bd_logits, fused
 
 # Example usage:
 if __name__ == "__main__":

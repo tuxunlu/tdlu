@@ -2,8 +2,10 @@
 /OncoNet/
 /WUSTL_Unmodified_mammograms_selected/
 /runs/
-dataset/
-/config/
+/dataset/
+/AutoMM/
+/logs/
+/tmp/
 *.png
 *.pyc
 *.zip
@@ -11,4 +13,3 @@ dataset/
 
 activate.sh
 test.sh
-*.yaml

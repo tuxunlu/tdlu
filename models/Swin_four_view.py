@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import torch.nn.init as init
-from transformers import SwinModel, AutoConfig
+from transformers import SwinModel, AutoConfig, SwinForImageClassification
 
 class ClassificationHead(nn.Module):
     """
@@ -11,14 +11,14 @@ class ClassificationHead(nn.Module):
     def __init__(self, input_dim: int, num_classes: int, dropout_rate: float = 0.5):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, 256)
-        self.bn1 = nn.BatchNorm1d(256)
+        self.ln1 = nn.LayerNorm(256)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(dropout_rate)
         self.fc_out = nn.Linear(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
-        x = self.bn1(x)
+        x = self.ln1(x)
         x = self.relu(x)
         x = self.dropout(x)
         return self.fc_out(x)
@@ -29,7 +29,7 @@ def init_weights(m):
         init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         if m.bias is not None:
             init.zeros_(m.bias)
-    elif isinstance(m, nn.BatchNorm2d):
+    elif isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
         init.ones_(m.weight)
         init.zeros_(m.bias)
 
@@ -42,12 +42,12 @@ class SwinFourView(nn.Module):
         self,
         num_bins: int,
         num_views: int = 4,
-        transformer_embed_dim: int = 1024,
+        transformer_embed_dim: int = 512,
         transformer_heads: int = 8,
         transformer_layers: int = 2,
         dropout_rate: float = 0.5,
         freeze_backbone: bool = False,
-        swin_model_name: str = "microsoft/swin-base-patch4-window7-224",
+        swin_model_name: str = "Koushim/breast-cancer-swin-classifier",
     ):
         super().__init__()
         # Load Swin backbone with hidden states (to get reshaped_hidden_states)
@@ -56,18 +56,15 @@ class SwinFourView(nn.Module):
             output_hidden_states=True,
             return_dict=True,
         )
-        self.backbone = SwinModel.from_pretrained(
+        self.backbone = SwinForImageClassification.from_pretrained(
             swin_model_name,
-            config=config,
         )
 
         self.swin_feature_dim = config.hidden_size
 
-        assert self.swin_feature_dim == transformer_embed_dim
-
         # Transformer for fusion
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=transformer_embed_dim,
+            d_model=self.swin_feature_dim,
             nhead=transformer_heads,
             dropout=dropout_rate,
             batch_first=False,
@@ -79,12 +76,12 @@ class SwinFourView(nn.Module):
 
         # Classification head after fusion
         self.classification_head = ClassificationHead(
-            input_dim=transformer_embed_dim,
+            input_dim=self.swin_feature_dim,
             num_classes=num_bins,
             dropout_rate=dropout_rate
         )
 
-        self.backbone.apply(init_weights)
+        self.classification_head.apply(init_weights)
 
     def _load_model_weight_backbone(self, model_weight_path: str):
         ckpt = torch.load(model_weight_path)
@@ -116,14 +113,15 @@ class SwinFourView(nn.Module):
         outputs = self.backbone(
             x,
             interpolate_pos_encoding=True,
+            output_hidden_states=True
         )
 
-        hidden_states = outputs.hidden_states  # tuple/list
+        hidden_states = outputs.reshaped_hidden_states  # tuple/list
         if hidden_states is None:
             raise RuntimeError("hidden_states not returned; ensure output_hidden_states=True in config/forward.")
 
         last_hidden = hidden_states[-1]  # [B*V, H', W', C]
-        view_feats = last_hidden.mean(dim=1)
+        view_feats = last_hidden.mean(dim=(2,3))
 
         view_embeds = view_feats.view(B, V, self.swin_feature_dim)               # → [B, V, C]
         seq        = view_embeds.permute(1, 0, 2)            # → [V, B, C]

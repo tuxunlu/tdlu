@@ -121,7 +121,7 @@ class MgmoduleFourView(nn.Module):
         self.backbone._modules["7"]._modules["0"].load_state_dict(mirai_weight.layer4_0.state_dict())
         self.backbone._modules["7"]._modules["1"].load_state_dict(mirai_weight.layer4_1.state_dict())
 
-    def forward(self, views: torch.Tensor, meta: torch.Tensor):
+    def forward(self, views: torch.Tensor):
         """
         views: Tensor of shape [B, V, C, H, W], where V=4 views.
         Returns:

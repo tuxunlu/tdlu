@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from typing import Callable, Dict, Tuple
 import matplotlib.pyplot as plt
 
-from .loss.OhemCELoss import OhemCELoss
+from .loss.DICELoss import DICELoss
 from .loss.FocalLoss import FocalLoss
 from torchmetrics.classification import MulticlassF1Score, MulticlassAccuracy
 
@@ -51,15 +51,6 @@ class ModelInterfaceAux(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         *train_input, target_label, aux_target_label, train_filenames = batch
         tdlu_logits, bd_logits, fused_feature = self(*train_input)
-
-        with torch.no_grad():
-            assert tdlu_logits.size(1) == self.num_bins, \
-                f"MAIN C={tdlu_logits.size(1)} != num_bins={self.num_bins}"
-            assert bd_logits.size(1) == self.num_bins, \
-                f"AUX C={bd_logits.size(1)} != num_bins={self.num_bins}"
-            assert target_label.dtype == torch.long and aux_target_label.dtype == torch.long
-            assert (target_label.min() >= 0) and (target_label.max() < tdlu_logits.size(1))
-            assert (aux_target_label.min() >= 0) and (aux_target_label.max() < bd_logits.size(1))
 
         # Compute loss using the configured loss function.
         loss_main = self.loss_fn_target(tdlu_logits, target_label, stage='train')

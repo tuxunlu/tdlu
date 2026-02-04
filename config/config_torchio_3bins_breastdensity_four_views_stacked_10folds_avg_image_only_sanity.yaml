@@ -1,0 +1,83 @@
+# config.yaml
+# Sanity check configuration: Predicting BreastDensity instead of TDLU
+# Using transformer-based feature fusion with comprehensive augmentation
+# This config is for sanity checking - BreastDensity should be easier to predict
+
+seed: 42  # Random seed for reproducibility
+
+# Model configuration
+model_interface: "ModelInterface"
+model_class_name: "MGModule_four_view_avg"
+pretrained_path: null
+use_compile: True  # Use TorchScript compilation for faster inference
+freeze_backbone: False  # Fine-tune entire backbone for better performance
+num_meta_features: 10  # 3 continuous + 7 race one-hot from dataset
+resume_from_manual_checkpoint: null
+
+# Transformer architecture hyperparameters (optimized for multi-view fusion)
+transformer_heads: 8  # Multi-head attention heads (should divide feature_dim=512)
+transformer_layers: 2  # Reduced back to 2 for stability (3 was causing instability)
+transformer_dim_feedforward: 2048  # Feedforward dimension (4x feature_dim is standard)
+
+# Loss configuration
+loss: [FocalLoss]  
+loss_weight: [1]  # Weight for the loss function
+weight_decay: 1.0e-4  # Standard weight decay for stability
+# Note: focal_loss_alpha will be computed automatically based on class distribution
+focal_loss_alpha: [1.0, 1.0, 1.0]  # Placeholder - will be recomputed based on BreastDensity distribution
+focal_loss_gamma: 1.0  # Reduced from 2.0 to 1.0 for more stable training
+
+# Training configuration (optimized learning rate schedule)
+enable_checkpointing: True
+max_epochs: 150  # Increased from 100 for better convergence
+lr: 5.0e-5  # Reduced further for stability (was 1e-4, still too high)
+lr_decay_epochs: 150  # Match max_epochs for cosine annealing
+lr_decay_min_lr: 1.0e-7  # Lower minimum LR for fine-tuning
+lr_scheduler: "cosine"  # Cosine annealing for smooth decay
+warmup_epochs: 10  # Increased warmup for more stable start
+warmup_lr: 1.0e-6  # Lower starting LR during warmup
+
+# Gradient clipping for training stability (PyTorch Lightning parameter)
+gradient_clip_val: 1.0  # Clip gradients to prevent explosion
+gradient_clip_algorithm: "norm"  # Use norm-based clipping
+
+# Regularization and dropout
+dropout_rate: 0.2  # Reduced from 0.3 (was too high, causing underfitting)
+label_smoothing: 0.05  # Reduced from 0.1 for better learning signal
+
+# Dataset configuration
+dataset_name: "TDLUDataset_torchio_four_view_mask_meta_avg_10_folds_Hologic"
+meta_cols: ['BreastDensity_avg', 'mamm_age', 'cbmi_donation', 'geanc_Race']
+cross_val_fold: 8
+mamm_only: True
+batch_size: 12  # Reduced from 16 for more stable gradients (smaller batches = more stable)
+test_batch_size: 1 
+num_save: 10
+num_bins: 3  # 3 bins for BreastDensity classification
+target: "BreastDensity"  # Changed from "tdlu_density_extreme_zero" to "BreastDensity" for sanity check
+label_type: "raw"  # Changed from "label" to "raw" - BreastDensity needs quantile binning
+run_dir: "./runs"
+num_workers: 8  # Increased from 6 for faster data loading
+persistent_workers: False  # Set to True for faster epoch transitions
+pin_memory: False  # Set to True for faster GPU transfer
+
+# Data paths
+image_dir: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16"
+dense_mask_dir: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/LIBRA_Masks_npy"
+breast_mask_dir: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16_contour"
+csv_path: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/umd_annot_md_TDLU_y2025m07d09.csv"
+
+# Augmentation configuration
+use_augmentation: True
+augmentation_strength: "mild"  # Reduced to 'mild' for more stable training (moderate was too aggressive)
+# Mild augmentation includes:
+# - Spatial: horizontal flip (p=0.5), very small affine transforms (scales 0.95-1.05, rotation ±5°, translation ±10px)
+# - Intensity: gamma correction (p=0.4), noise (p=0.3), blur (p=0.3)
+
+weights_json_path: null
+device: "cuda"
+
+# Logging configuration
+log_dir: "/beacon-scratch/tuxunlu/git/tdlu/runs"
+experiment_name: "config_torchio_3bins_breastdensity_stacked_10fold_avg_image_only_resnet_transformer_sanity_check"
+log_every_n_steps: 10  # Log every 10 steps to reduce overhead

@@ -2,23 +2,33 @@ import scipy.io as sio
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from PIL import Image
 
-folder = "/beacon-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks"
-save = "/beacon-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy"
+mask_folder = "/beacon-scratch/tuxunlu/git/tdlu/dataset/LIBRA_Masks_npy"
+img_folder = "/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
+save_folder = "/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16_cropped"
 
-mat_files = [f for f in os.listdir(folder) if f.endswith(".mat")]
+os.makedirs(save_folder, exist_ok=True)
 
-for fname in mat_files:
+img_files = [f for f in os.listdir(img_folder) if f.endswith(".png")]
+
+for fname in img_files:
+    id = fname.replace(".png", "")
     print(f"Processing {fname}")
-    fpath = os.path.join(folder, fname)
 
-    # Load .mat file
-    mat = sio.loadmat(fpath, squeeze_me=True, struct_as_record=False)
+    mask_path = f"{mask_folder}/Masks_{id}-new.npy"
+    img_path = f"{img_folder}/{id}.png"
+    save_path = f"{save_folder}/{id}.png"
 
-    # Extract the struct
-    res = mat['res']
+    # Load mask (boolean)
+    mask = np.load(mask_path).astype(bool)
 
-    dense_mask = res.DenseMask.astype(bool)
+    # Load image and convert to numpy array
+    img = np.array(Image.open(img_path))
 
-    with open(f'{save}/{fname.replace("mat", "npy")}', 'wb') as f:
-        np.save(f, dense_mask)
+    # If grayscale: shape (H,W), if RGB: shape (H,W,3)
+    if img.ndim == 2:
+        cropped = img * mask
+
+    # Option A: Save with black background (no transparency)
+    Image.fromarray(cropped).save(save_path, format="PNG")

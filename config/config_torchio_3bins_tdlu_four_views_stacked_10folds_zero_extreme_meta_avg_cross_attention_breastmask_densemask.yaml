@@ -7,60 +7,62 @@ seed: 1234  # Random seed for reproducibility
 #   - "MGModule_SingleHead"
 #   - "MGModuleViT"
 #   - "MGModule_SingleHead_Mamm_Only"
-model_class_name: "MGModule_four_view_meta"
+model_interface: "ModelInterface"
+model_class_name: "MGModule_four_view_mask_meta_avg_cross_attention"
 # Optionally, specify a pretrained model path (use null if not used)
 pretrained_path: /beacon-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
 use_compile: True  # Use TorchScript compilation for faster inference
 freeze_backbone: False  # Freeze the backbone model during training
+resume_from_manual_checkpoint: null
 
 # Loss configuration. The current options are:
 #   - "cross_entropy"
 #   - "hierarchical_cross_entropy"
-loss: [FocalLoss]
-loss_weight: [1.0]  # Weight for the loss function
-# weight_decay: 1.0e-3
+loss: [FocalLoss]  
+loss_weight: [1]  # Weight for the loss function
+weight_decay: 1.0e-3
 # label_smoothing: 0.15
 # use_ohem: False  # Use Online Hard Example Mining
 # keep_ratio: 0.7  # Ratio of hard examples to keep
-weight_decay: 1.0e-5
-focal_loss_alpha: [0.4420749279538905, 1.3575221238938053, 1.4893203883495145, 1.503921568627451, 1.503921568627451]  # Focal loss alpha values for each class
-focal_loss_gamma: 5   # Focal loss gamma value
+focal_loss_alpha: [0.8378378378378378, 0.7560975609756098, 2.066666666666667]  # Focal loss alpha values for each class
+focal_loss_gamma:  1  # Focal loss gamma value
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
-lr: 5.0e-4
-max_epochs: 1000
-lr_scheduler: "cyclic"
+max_epochs: 600
+lr: 0.0005
 lr_decay_epochs: 100
-lr_decay_min_lr: 5.0e-7
+lr_decay_min_lr: 5.0e-07 
+lr_scheduler: "cosine_restart"
 
-# Hyperparameters configuration.
+# Hyperparameters configuratison.
 # Note: Some of these values (e.g., target, description, num_bins, batch_size)
 # are overwritten later in the script; adjust these here if desired.
-dataset_name: "TDLUDataset_torchio_four_view_meta_folds"
+dataset_name: "TDLUDataset_torchio_four_view_mask_meta_avg_10_folds"
 meta_cols: ['mamm_age', 'cbmi_donation', 'geanc_Race']
-cross_val_fold: 1
+cross_val_fold: 0
 mamm_only: True
 batch_size: 24
-test_batch_size: 1
-num_save: 20
-num_bins: 5
-target: "tdlu_density"            # Target label name.
-zero: True
-label: False
+test_batch_size: 1 
+num_save: 50
+num_bins: 3
+target: "tdlu_density_extreme_zero"            # Target label name.
+label_type: "label"
 run_dir: "./runs"                 # Base directory to save run outputs.
-num_workers: 12
+num_workers: 6
 persistent_workers: False
 pin_memory: False
 # Image directory for the training data.
-image_dir: "/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
+image_dir: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16"
+dense_mask_dir: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/LIBRA_Masks_npy"
+breast_mask_dir: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16_contour"
 # CSV file containing annotations.
-csv_path: "/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv"
+csv_path: "/beacon-scratch/tuxunlu/git/tdlu/KOMEN/umd_annot_md_TDLU_y2025m07d09.csv"
 augment: True
 weights_json_path: null           # Optional weights JSON path (if applicable)
 device: "cuda"                    # Use "cuda" if a GPU is available, otherwise "cpu"
 
 # Logging configuration.
 log_dir: "/beacon-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_5bins_tdlu_zero_four_views_fold_1_focalloss_full_aug_gamma5_randomapply_0.3_0.5_meta"
+experiment_name: "config_torchio_3bins_tdlu_extreme_zero_stacked_10fold_0_focalloss_gamma1_meta_avg_cross_attention_600epochs"
 log_every_n_steps: 1  # Log every n steps

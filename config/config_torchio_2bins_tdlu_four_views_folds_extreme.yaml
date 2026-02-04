@@ -7,10 +7,10 @@ seed: 1234  # Random seed for reproducibility
 #   - "MGModule_SingleHead"
 #   - "MGModuleViT"
 #   - "MGModule_SingleHead_Mamm_Only"
-model_class_name: "MGModule_four_view"
+model_class_name: "MGModule_four_view_meta"
 # Optionally, specify a pretrained model path (use null if not used)
-pretrained_path: /fs/nexus-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
-# model_weight_path: /fs/nexus-scratch/tuxunlu/git/tdlu/runs/20250623-18-39-42-config_torchio_2bins_tdlu_extreme_four_views_fold_0_focalloss_full_aug_gamma_1/version_0/checkpoints/best-epoch=489-val_f1=0.66667-val_acc=0.86458.ckpt
+pretrained_path: /beacon-scratch/tuxunlu/git/tdlu/mgh_mammo_MIRAI_Base_May20_2019.p
+# model_weight_path: /beacon-scratch/tuxunlu/git/tdlu/runs/20250623-18-39-42-config_torchio_2bins_tdlu_extreme_four_views_fold_0_focalloss_full_aug_gamma_1/version_0/checkpoints/best-epoch=489-val_f1=0.66667-val_acc=0.86458.ckpt
 use_compile: True  # Use TorchScript compilation for faster inference
 freeze_backbone: False  # Freeze the backbone model during training
 
@@ -24,23 +24,24 @@ weight_decay: 1.0e-3
 # use_ohem: False  # Use Online Hard Example Mining
 # keep_ratio: 0.7  # Ratio of hard examples to keep
 focal_loss_alpha: [0.6600688468158348, 2.0618279569892475]
-focal_loss_gamma: 1  # Focal loss gamma value
+focal_loss_gamma: 2  # Focal loss gamma value
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
-lr: 5.0e-6
-max_epochs: 100
+lr: 5.0e-3
+max_epochs: 1000
 lr_scheduler: "cyclic"
 lr_decay_epochs: 20
-lr_decay_min_lr: 5.0e-8
+lr_decay_min_lr: 5.0e-6
 
 # Hyperparameters configuration.
 # Note: Some of these values (e.g., target, description, num_bins, batch_size)
 # are overwritten later in the script; adjust these here if desired.
-dataset_name: "TDLUDataset_torchio_four_view_folds"
+dataset_name: "TDLUDataset_torchio_four_view_meta_folds"
+meta_cols: ['mamm_age', 'cbmi_donation', 'geanc_Race']
 cross_val_fold: 0
 mamm_only: True
-batch_size: 12
+batch_size: 24
 test_batch_size: 1
 num_save: 20
 num_bins: 2
@@ -52,14 +53,14 @@ num_workers: 12
 persistent_workers: False
 pin_memory: False
 # Image directory for the training data.
-image_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
+image_dir: "/beacon-scratch/tuxunlu/git/tdlu/dataset/WUSTL_png_nomarker_16"
 # CSV file containing annotations.
-csv_path: "/fs/nexus-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m04d28.csv"
+csv_path: "/beacon-scratch/tuxunlu/git/tdlu/dataset/umd_annot_md_TDLU_y2025m07d09.csv"
 augment: True
 weights_json_path: null           # Optional weights JSON path (if applicable)
 device: "cuda"                    # Use "cuda" if a GPU is available, otherwise "cpu"
 
 # Logging configuration.
-log_dir: "/fs/nexus-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_2bins_tdlu_extreme_four_views_fold_0_focalloss_full_aug_gamma_1"
+log_dir: "/beacon-scratch/tuxunlu/git/tdlu/runs"
+experiment_name: "config_torchio_2bins_tdlu_extreme_four_views_fold_0_focalloss_full_aug_gamma_2_meta"
 log_every_n_steps: 1  # Log every n steps

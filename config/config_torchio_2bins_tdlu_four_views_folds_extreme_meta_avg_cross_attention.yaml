@@ -29,7 +29,7 @@ focal_loss_gamma:  2  # Focal loss gamma value
 
 # Training configuration.
 enable_checkpointing: True  # Enable model checkpointing
-lr: 5.0e-3
+lr: 1e-4
 max_epochs: 1000
 lr_scheduler: "cyclic"
 lr_decay_epochs: 100

@@ -2,18 +2,16 @@ import torch
 import torch.nn as nn
 import torchvision
 import torch.nn.init as init
+from torchvision.models import ResNet18_Weights
 
 class ClassificationHead(nn.Module):
-    """
-    Classification head: projects transformer output to num_classes.
-    """
-    def __init__(self, input_dim: int, num_classes: int, dropout_rate: float = 0.5):
+    def __init__(self, input_dim: int, num_classes: int, dropout_rate: float = 0.2):
         super().__init__()
-        self.fc1 = nn.Linear(input_dim, 256)
-        self.bn1 = nn.LayerNorm(256)
+        self.fc1 = nn.Linear(input_dim, 512)
+        self.bn1 = nn.LayerNorm(512)
         self.gelu = nn.GELU()
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc_out = nn.Linear(256, num_classes)
+        self.fc_out = nn.Linear(512, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
@@ -22,160 +20,170 @@ class ClassificationHead(nn.Module):
         x = self.dropout(x)
         return self.fc_out(x)
 
-
-def init_weights(m):
-    if isinstance(m, (nn.Conv2d, nn.Linear)):
-        init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        if m.bias is not None:
-            init.zeros_(m.bias)
-    elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.LayerNorm):
-        init.ones_(m.weight)
-        init.zeros_(m.bias)
-
 class MgmoduleFourViewMetaAvgCrossAttention(nn.Module):
     """
-    Model that encodes 4 mammogram views with shared backbone, fuses via transformer,
-    and outputs logits for classification.
+    Improved version with multiple fusion strategies
     """
     def __init__(
         self,
         num_bins: int,
         num_views: int = 4,
-        transformer_embed_dim: int = 512,
+        transformer_embed_dim: int = 2048,
         transformer_heads: int = 8,
         transformer_layers: int = 2,
-        num_meta_features: int = 4,
-        dropout_rate: float = 0.5,
-        freeze_backbone: bool = False,
+        num_meta_features: int = 10,
+        dropout_rate: float = 0.2,
+        freeze_backbone: bool = True,
         pretrained_path: str = None,
-        model_weight_path: str = None,
-        meta_only: bool = False
+        fusion_method: str = "cross_attention",  # Options: "cross_attention", "concat", "weighted_sum"
     ):
         super().__init__()
-        # Load ResNet18 backbone without final FC
-        resnet = torchvision.models.resnet18(weights=None)
-        self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        self.feature_dim = resnet.fc.in_features  # typically 512
+        self.num_views = num_views
+        self.fusion_method = fusion_method
 
-        self.meta_only = meta_only
+        # Load ResNet18 backbone
+        resnet = torchvision.models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        resnet.fc = nn.Identity()  # Remove final classification layer
+        self.backbone = resnet
+        self.feature_dim = 512
 
-        # Optional pretrained loading
-        if pretrained_path:
-            self._load_pretrained_backbone(pretrained_path)
+        # Meta feature processing
+        self.meta_proj = nn.Sequential(
+            nn.Linear(num_meta_features, 256),
+            nn.LayerNorm(256),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, self.feature_dim),
+            nn.LayerNorm(self.feature_dim)
+        )
         
-        if model_weight_path:
-            self._load_model_weight_backbone(model_weight_path)
-
-        if freeze_backbone:
-            for name, p in self.backbone.named_parameters():
-                if name.startswith(("4", "5", "6", "7")):
-                    p.requires_grad = False 
-                else:
-                    p.requires_grad = True  # conv1, bn1, maxpool
-
-        self.global_meta = nn.Sequential(
-            nn.Linear(4, 512),
-            nn.LayerNorm(512),
-            nn.GELU()
+        # View feature processing
+        self.view_proj = nn.Sequential(
+            nn.LayerNorm(self.feature_dim),
+            nn.Linear(self.feature_dim, self.feature_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate)
         )
-
-        # Transformer for fusion
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=transformer_embed_dim,
-            nhead=transformer_heads,
-            dropout=dropout_rate,
-            batch_first=False,
-        )
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=transformer_layers)
-
-        # Classification head after fusion
+        
+        # Different fusion strategies
+        if fusion_method == "cross_attention":
+            # Cross-attention: views attend to meta and vice versa
+            self.cross_attn_meta_to_views = nn.MultiheadAttention(
+                embed_dim=self.feature_dim, 
+                num_heads=transformer_heads, 
+                batch_first=True,
+                dropout=dropout_rate
+            )
+            self.cross_attn_views_to_meta = nn.MultiheadAttention(
+                embed_dim=self.feature_dim, 
+                num_heads=transformer_heads, 
+                batch_first=True,
+                dropout=dropout_rate
+            )
+            self.fusion_proj = nn.Linear(self.feature_dim * 2, self.feature_dim)
+            
+        elif fusion_method == "concat":
+            # Simple concatenation
+            self.fusion_proj = nn.Linear(self.feature_dim * 2, self.feature_dim)
+            
+        elif fusion_method == "weighted_sum":
+            # Learnable weighted sum
+            self.view_weights = nn.Parameter(torch.ones(num_views) / num_views)
+            self.meta_weight = nn.Parameter(torch.tensor(1.0))
+            self.fusion_proj = nn.Linear(self.feature_dim, self.feature_dim)
+        
+        # Classification head
         self.classification_head = ClassificationHead(
-            input_dim=transformer_embed_dim,
+            input_dim=self.feature_dim,
             num_classes=num_bins,
             dropout_rate=dropout_rate
         )
-        self.global_meta.apply(init_weights)
-        self.decoder.apply(init_weights)
-        self.classification_head.apply(init_weights)
-
-    def _load_model_weight_backbone(self, model_weight_path: str):
-        ckpt = torch.load(model_weight_path)
-        state_dict = ckpt.get("state_dict", ckpt)
-
-        backbone_ckpt = {}
-        prefix = "model.backbone."
-        for full_key, tensor in state_dict.items():
-            if full_key.startswith(prefix):
-                # strip off the prefix so it matches your self.backbone keys
-                new_key = full_key[len(prefix):]
-                backbone_ckpt[new_key] = tensor
         
-        load_info = self.backbone.load_state_dict(backbone_ckpt, strict=False)
-        print(f"Backbone loaded with missing keys: {load_info.missing_keys}  unexpected keys: {load_info.unexpected_keys}")
+        # Apply weight initialization
+        self._init_weights()
+        
+        # Freeze backbone if needed
+        if freeze_backbone:
+            self._freeze_backbone()
+    
+    def _init_weights(self):
+        modules_to_init = [
+            self.meta_proj,
+            self.view_proj,
+            self.fusion_proj,
+            self.classification_head,
+        ]
+        for module in modules_to_init:
+            for m in module.modules():
+                if isinstance(m, (nn.Conv2d, nn.Linear)):
+                    init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                    if m.bias is not None:
+                        init.zeros_(m.bias)
+                elif isinstance(m, (nn.BatchNorm2d, nn.LayerNorm)):
+                    init.ones_(m.weight)
+                    init.zeros_(m.bias)
 
+    
+    def _freeze_backbone(self):
+        for name, param in self.backbone.named_parameters():
+            param.requires_grad = False
+            if name.startswith("layer4"):
+                param.requires_grad = True
 
-    def _load_pretrained_backbone(self, mirai_path: str):
-        # Optionally load pretrained weights for the backbone.
-        mirai_weight = torch.load(mirai_path, map_location="cpu", weights_only=False)
-        mirai_weight = mirai_weight.module._model
-        self.backbone._modules["0"].load_state_dict(mirai_weight.downsampler.conv1.state_dict())
-        self.backbone._modules["1"].load_state_dict(mirai_weight.downsampler.bn1.state_dict())
-        self.backbone._modules["2"].load_state_dict(mirai_weight.downsampler.relu.state_dict())
-        self.backbone._modules["3"].load_state_dict(mirai_weight.downsampler.maxpool.state_dict())
-        self.backbone._modules["4"]._modules["0"].load_state_dict(mirai_weight.layer1_0.state_dict())
-        self.backbone._modules["4"]._modules["1"].load_state_dict(mirai_weight.layer1_1.state_dict())
-        self.backbone._modules["5"]._modules["0"].load_state_dict(mirai_weight.layer2_0.state_dict())
-        self.backbone._modules["5"]._modules["1"].load_state_dict(mirai_weight.layer2_1.state_dict())
-        self.backbone._modules["6"]._modules["0"].load_state_dict(mirai_weight.layer3_0.state_dict())
-        self.backbone._modules["6"]._modules["1"].load_state_dict(mirai_weight.layer3_1.state_dict())
-        self.backbone._modules["7"]._modules["0"].load_state_dict(mirai_weight.layer4_0.state_dict())
-        self.backbone._modules["7"]._modules["1"].load_state_dict(mirai_weight.layer4_1.state_dict())
+        for n, p in self.backbone.named_parameters():
+            print(n, p.requires_grad)
 
-    def forward(self, views: torch.Tensor, meta: torch.Tensor):
-        """
-        views: Tensor of shape [B, V, C, H, W], where V=4 views.
-        meta:  Tensor [B, 3] → the tabular [age, BMI, ancestry]
-        Returns:
-          logits: [B, num_bins]
-          fused_features: [B, transformer_embed_dim]
-        """
-        if self.meta_only:
-            assert meta is not None, "Metadata must be provided for meta-only mode"
-            meta_feats = self.global_meta(meta)              # [B, D]
-            logits = self.classification_head(meta_feats)   # [B, num_bins]
-            return logits, meta_feats
-
+    
+    def forward(self, views: torch.Tensor, mask: torch.Tensor, meta: torch.Tensor):
         B, V, C, H, W = views.shape
-        assert V == 4, f"Expected 4 views, got {V}"
-
-        # Flatten batch and view dims to encode all views
-        x = views.view(B * V, C, H, W)
-        mamm_feats = self.backbone(x)                    # [B*V, D, 1, 1]
-        mamm_feats = mamm_feats.view(B, V, self.feature_dim)  # [B, V, D]
-
-        # 3) global meta-token
-        meta_token = self.global_meta(meta)
-        meta_token = meta_token.unsqueeze(0)                # [1,B,D]
-
-        # 4) transformer fusion
-        view_tokens = mamm_feats.permute(1,0,2)         # [V,B,D]
-        seq         = torch.cat([view_tokens, meta_token], dim=0)
-        fused_seq   = self.decoder(tgt=meta_token, memory=view_tokens)
-
-        # Aggregate transformer outputs (e.g., mean pooling)
-        fused = fused_seq.squeeze(0)             # [B, D]
-
+        
+        # Flatten batch and view dims
+        views_flat = views.view(B * V, C, H, W)
+        
+        # Extract view features
+        view_features = self.backbone(views_flat).flatten(1)  # [B*V, D]
+        view_features = view_features.view(B, V, self.feature_dim)  # [B, V, D]
+        view_features = self.view_proj(view_features)  # [B, V, D]
+        
+        # Process meta features
+        meta_features = self.meta_proj(meta).unsqueeze(1)  # [B, 1, D]
+        
+        # Fusion strategies
+        if self.fusion_method == "cross_attention":
+            # Meta attends to views
+            meta_attended, _ = self.cross_attn_meta_to_views(
+                query=meta_features,  # [B, 1, D]
+                key=view_features,    # [B, V, D]
+                value=view_features   # [B, V, D]
+            )
+            
+            # Views attend to meta
+            views_attended, _ = self.cross_attn_views_to_meta(
+                query=view_features,  # [B, V, D]
+                key=meta_features,    # [B, 1, D]
+                value=meta_features   # [B, 1, D]
+            )
+            
+            # Pool view features
+            views_pooled = views_attended.mean(dim=1)  # [B, D]
+            
+            # Combine
+            fused = torch.cat([meta_attended.squeeze(1), views_pooled], dim=1)  # [B, 2*D]
+            fused = self.fusion_proj(fused)  # [B, D]
+            
+        elif self.fusion_method == "concat":
+            # Simple concatenation
+            views_pooled = view_features.mean(dim=1)  # [B, D]
+            fused = torch.cat([views_pooled, meta_features.squeeze(1)], dim=1)  # [B, 2*D]
+            fused = self.fusion_proj(fused)
+            
+        elif self.fusion_method == "weighted_sum":
+            # Learnable weighted combination
+            views_weighted = (view_features * self.view_weights.view(1, -1, 1)).sum(dim=1)  # [B, D]
+            meta_weighted = meta_features.squeeze(1) * self.meta_weight
+            fused = views_weighted + meta_weighted
+            fused = self.fusion_proj(fused)
+        
         # Classification
         logits = self.classification_head(fused)  # [B, num_bins]
-        return logits, fused
-
-# Example usage:
-if __name__ == "__main__":
-    model = MgmoduleFourViewMeta(num_bins=2)
-    # dummy 4-view batch + dummy meta
-    dummy_views = torch.randn(8, 4, 3, 224, 224)
-    dummy_density = torch.randn(8, 4)
-    dummy_meta  = torch.randn(8, 3)  # e.g. [age, BMI, ancestry]
-    logits, fused = model(dummy_views, dummy_density, dummy_meta)
-    print("logits:", logits.shape)   # (8, 2)
-    print("fused: ", fused.shape)    # (8, 512)
+        return logits

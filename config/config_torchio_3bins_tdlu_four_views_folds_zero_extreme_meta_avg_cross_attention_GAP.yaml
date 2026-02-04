@@ -40,14 +40,14 @@ lr_decay_min_lr: 5.0e-7
 # are overwritten later in the script; adjust these here if desired.
 dataset_name: "TDLUDataset_torchio_four_view_mask_meta_avg_folds"
 meta_cols: ['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race']
-cross_val_fold: 1
+cross_val_fold: 0
 mamm_only: True
 batch_size: 24
 test_batch_size: 1 
 num_save: 20
 num_bins: 3
-target: "tdlu_density_extreme_zero"            # Target label name.
-label_type: "label"
+target: "BreastDensity"            # Target label name.
+label_type: "raw"
 run_dir: "./runs"                 # Base directory to save run outputs.
 num_workers: 12
 persistent_workers: False
@@ -63,5 +63,5 @@ device: "cuda"                    # Use "cuda" if a GPU is available, otherwise 
 
 # Logging configuration.
 log_dir: "/beacon-scratch/tuxunlu/git/tdlu/runs"
-experiment_name: "config_torchio_3bins_tdlu_four_views_fold_1_focalloss_gamma1_randomapply_meta_zero_extreme_avg_cross_attention_freeze_GAP"
+experiment_name: "config_torchio_3bins_BreastDensity_four_views_fold_0_focalloss_gamma1_randomapply_meta_zero_extreme_avg_cross_attention_freeze_GAP"
 log_every_n_steps: 1  # Log every n steps

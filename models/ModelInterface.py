@@ -27,23 +27,29 @@ class ModelInterface(pl.LightningModule):
         self.val_acc   = MulticlassAccuracy(num_classes=self.hparams.num_bins)
         self.test_acc  = MulticlassAccuracy(num_classes=self.hparams.num_bins)
 
+    def _extract_logits(self, outputs):
+        """
+        Some models return (logits, features); metrics/loss expect logits only.
+        """
+        if isinstance(outputs, (tuple, list)):
+            return outputs[0]
+        return outputs
+
     def forward(self, x, *args, **kwargs):
         return self.model(x, *args, **kwargs)
 
     def training_step(self, batch, batch_idx):
         # Expect batch to be: (train_input, *other_inputs, train_labels)
         *train_input, train_labels, train_filenames = batch
-        train_out = self(*train_input)
+        train_logits = self._extract_logits(self(*train_input))
 
-        train_logits, train_fused_feature = train_out
-        
         train_loss = self.loss_function(train_logits, train_labels, 'train')
 
         # Get predicted class labels.
         out_label = train_logits.argmax(dim=1)
 
-        self.train_f1.update(out_label, train_labels)
-        self.train_acc.update(train_logits, train_labels)
+        self.train_f1(out_label, train_labels)
+        self.train_acc(train_logits, train_labels)
     
         # Also log loss in a way that aggregates over the epoch if desired.
         self.log('train_loss', train_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -56,61 +62,25 @@ class ModelInterface(pl.LightningModule):
         # Return the loss (Lightning uses this for optimization).
         return train_loss
 
-    def on_train_epoch_end(self):
-        """
-        This hook aggregates information from all training steps of the epoch.
-        It logs the overall training loss (if not already logged), computes the class distribution
-        from batch predictions, logs a bar plot, and logs the current learning rate.
-        """
-        # Aggregate all training labels from the epoch.
-        # if self._train_labels:
-        #     all_labels = torch.cat(self._train_labels)
-        #     # Determine the number of bins from hyperparameters or infer from the data.
-        #     num_bins = self.hparams.num_bins if hasattr(self.hparams, "num_bins") else (all_labels.max().item() + 1)
-        #     class_counts = torch.bincount(all_labels, minlength=num_bins)
-
-        #     # Create a bar plot for the class distribution.
-        #     fig, ax = plt.subplots()
-        #     ax.bar(range(num_bins), class_counts.numpy())
-        #     ax.set_xlabel("Class")
-        #     ax.set_ylabel("Count")
-        #     ax.set_title(f"Class Distribution in Epoch {self.current_epoch}")
-        #     # Log the figure to the logger (if supported).
-        #     if self.logger is not None and hasattr(self.logger.experiment, "add_figure"):
-        #         self.logger.experiment.add_figure("Class_Distribution", fig, global_step=self.current_epoch)
-        #     plt.close(fig)
-        
-        # Clear the list for the next epoch.
-        self._train_labels = []
-
     def validation_step(self, batch, batch_idx):
         *val_input, val_labels, _ = batch
-        val_logits, _ = self(*val_input)
+        val_logits = self._extract_logits(self(*val_input))
 
         val_loss = self.loss_function(val_logits, val_labels, 'validation')
 
         # Update metrics with logits (TorchMetrics will argmax internally)
-        self.val_f1.update(val_logits, val_labels)
-        self.val_acc.update(val_logits, val_labels)
+        self.val_f1(val_logits, val_labels)
+        self.val_acc(val_logits, val_labels)
 
         # Only log the loss here
-        self.log('val_loss', val_loss, on_step=False, on_epoch=True,
-                 prog_bar=True, sync_dist=True)
+        self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_acc', self.val_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_f1', self.val_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return val_loss
-
-    def on_validation_epoch_end(self):
-        # Compute once, TorchMetrics handles state syncing & sample counts
-        f1  = self.val_f1.compute()
-        acc = self.val_acc.compute()
-        self.log('val_f1',  f1,  prog_bar=True, sync_dist=True)
-        self.log('val_acc', acc, prog_bar=True, sync_dist=True)
-        self.val_f1.reset(); self.val_acc.reset()
-        return
 
     def test_step(self, batch, batch_idx):
         *test_input, test_labels, test_filenames = batch
-        test_out = self(*test_input)
-        test_logits, test_fused_feature = test_out
+        test_logits = self._extract_logits(self(*test_input))
         test_loss = self.loss_function(test_logits, test_labels, 'test')
 
         out_label = test_logits.argmax(dim=1)
@@ -118,12 +88,12 @@ class ModelInterface(pl.LightningModule):
         # Print sample predictions for debugging.
         print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_labels[:10].tolist()}")
 
-        self.test_acc.update(test_logits, test_labels)
-        self.test_f1.update(out_label, test_labels)
+        self.test_acc(test_logits, test_labels)
+        self.test_f1(out_label, test_labels)
 
-        self.log('test_loss', test_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('test_loss', test_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('test_acc', self.test_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log('test_f1', self.test_f1, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('test_f1', self.test_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return test_loss
 
@@ -173,11 +143,68 @@ class ModelInterface(pl.LightningModule):
         raw_loss_list = [func(inputs, labels) for _, func in loss_dict.values()]
         weighted_loss = [weight * raw_loss for (weight, _), raw_loss in zip(loss_dict.values(), raw_loss_list)]
         for name, raw_loss in zip(loss_dict.keys(), raw_loss_list):
-            self.log(f'{stage}_{name}', raw_loss.item(), on_step=False, on_epoch=True, prog_bar=False)
+            self.log(f'{stage}_{name}', raw_loss.item(), on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
 
         return sum(weighted_loss)
 
     def __configure_loss(self):
+        # Configure loss functions based on hyperparameters.
+        config_loss_weight = self.hparams.loss_weight
+        config_loss_names = self.hparams.loss
+        config_loss_funcs = []
+        
+        for name in config_loss_names:
+            if name == 'FocalLoss':
+                # Handle alpha parameter properly - convert list to tensor if needed
+                alpha = self.hparams.focal_loss_alpha
+                if isinstance(alpha, list):
+                    alpha = torch.tensor(alpha, dtype=torch.float32)
+
+                config_loss_funcs.append(
+                    FocalLoss(
+                        alpha=alpha,
+                        gamma=self.hparams.focal_loss_gamma
+                    )
+                )
+            elif name == 'OhemCELoss':
+                config_loss_funcs.append(
+                    OhemCELoss(
+                        thresh=getattr(self.hparams, 'ohem_thresh', 0.7),
+                        n_min=getattr(self.hparams, 'ohem_n_min', None)
+                    )
+                )
+            else:
+                try:
+                    config_loss_funcs.append(
+                        getattr(importlib.import_module('torch.nn'), name)()
+                    )
+                except AttributeError:
+                    raise ValueError(f"Unknown loss function: {name}")
+        
+        # Fixed assertion syntax
+        assert (len(config_loss_funcs) == len(config_loss_weight) 
+                and len(config_loss_funcs) == len(config_loss_names)), \
+            "Loss function count and weight/name count mismatch!"
+
+        config_loss_dict = {
+            loss_name: (loss_weight, loss_func)
+            for loss_name, loss_weight, loss_func in zip(config_loss_names, config_loss_weight, config_loss_funcs)
+        }
+
+        # Optional: add user-defined loss functions if needed
+        user_loss_dict = {}
+        loss_dict = {**config_loss_dict, **user_loss_dict}
+
+        def loss_func(inputs, labels, stage):
+            return self.__calculate_loss_and_log(
+                inputs=inputs,
+                labels=labels,
+                loss_dict=loss_dict,
+                stage=stage
+            )
+
+        return loss_func
+
         # Configure loss functions based on hyperparameters.
         config_loss_weight = self.hparams.loss_weight
         config_loss_names = self.hparams.loss

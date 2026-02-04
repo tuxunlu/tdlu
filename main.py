@@ -20,23 +20,23 @@ def load_callbacks(config):
     if config.get('enable_checkpointing', False):
         # Save best checkpoint (monitoring validation accuracy).
         callbacks.append(plc.ModelCheckpoint(
-            monitor='val_f1_main',
+            monitor='val_f1',
             mode='max',
             save_top_k=1,
-            filename='best-{epoch:03d}-{val_f1_main:.5f}-{val_acc_main:.5f}',
+            filename='best-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
             verbose=True,
         ))
         # Save epoch checkpoint (latest model for each epoch).
         callbacks.append(plc.ModelCheckpoint(
             save_last=True,
-            filename='last-{epoch:03d}-{val_f1_main:.5f}-{val_acc_main:.5f}',
+            filename='last-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
         ))
         # Save all checkpoints.
         callbacks.append(plc.ModelCheckpoint(
-            every_n_epochs=20,
+            every_n_epochs=50,
             save_top_k=-1,
             save_on_train_epoch_end=True,
-            filename='epoch-{epoch:03d}-{val_f1_main:.5f}-{val_acc_main:.5f}',
+            filename='epoch-{epoch:03d}-{val_f1:.5f}-{val_acc:.5f}',
         ))
     
     # Learning rate monitor.
@@ -108,6 +108,7 @@ def main(config):
     
     # Create a logger. If resuming from a checkpoint, reuse the same logger directory.
     if checkpoint_directory is not None:
+        print(f"Resuming from checkpoint: {checkpoint_directory}, file: {checkpoint_file_path}")
         logger = TensorBoardLogger(save_dir='.', name=checkpoint_directory)
     else:
         print("Training from scratch...")
@@ -130,7 +131,7 @@ def main(config):
     trainer_kwargs['log_every_n_steps'] = config['log_every_n_steps']
     
     # Instantiate the Trainer.
-    trainer = Trainer(accelerator="gpu", devices=4, strategy="ddp", detect_anomaly=True, **trainer_kwargs)
+    trainer = Trainer(accelerator="gpu", devices=1, strategy="ddp", **trainer_kwargs)
 
     trainer.fit(model=model_module, datamodule=data_module, ckpt_path=checkpoint_file_path)
 
@@ -157,7 +158,14 @@ if __name__ == '__main__':
         type=str,
         help='Path to a checkpoint file (.ckpt) to resume training from'
     )
-    
+
+    parser.add_argument(
+        '--cross_val_fold',
+        type=int,
+        default=None,
+        help='Cross-validation fold number'
+    )
+
     args = parser.parse_args()
     if not os.path.exists(args.config_path):
         raise FileNotFoundError(f'No config file found at {args.config_path}!')
@@ -165,9 +173,16 @@ if __name__ == '__main__':
     # Load configuration from YAML and normalize keys.
     with open(args.config_path) as f:
         config_dict = yaml.safe_load(f)
-    config_dict['resume_from_manual_checkpoint'] = args.resume_from_manual_checkpoint
-    config_dict['resume_from_last_checkpoint'] = args.resume_from_last_checkpoint
+    # config_dict['resume_from_manual_checkpoint'] = args.resume_from_manual_checkpoint
+    # config_dict['resume_from_last_checkpoint'] = args.resume_from_last_checkpoint
     # Convert all keys to lowercase to ensure consistency.
     config_dict = {k.lower(): v for k, v in config_dict.items()}
-    
+
+    if args.cross_val_fold is not None:
+        config_dict['cross_val_fold'] = args.cross_val_fold
+        # ensure experiment_name exists before using it
+        exp_name = config_dict.get('experiment_name')
+        exp_name = exp_name.replace('fold', f'fold{args.cross_val_fold}')
+        config_dict['experiment_name'] = exp_name
+
     main(config_dict)

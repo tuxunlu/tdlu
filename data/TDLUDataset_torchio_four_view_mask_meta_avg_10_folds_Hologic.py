@@ -21,28 +21,82 @@ from utils.ToTensor16RGB import ToTensor16RGB
 import matplotlib.pyplot as plt
 
 class JointTioAug:
-    def __init__(self, size=(1024, 1024)):
-        # spatial transforms shared by image & mask
-        self.spatial = tio.Compose([
-            tio.RandomFlip(axes=(0, 1), p=0.5),                 # 2D: flip H/W
-            tio.RandomAffine(
-                scales=(0.9, 1.1),
-                degrees=(0, 0, 10),                             # rotate around z
-                translation=(0, 0, 0),                          # tweak if needed
-                image_interpolation='linear',
-                label_interpolation='nearest',
-                p=0.4,
-            ),
-            # For 2D PNGs, resizing is often fine; if working with true 3D scans prefer Resample+CropOrPad
-            tio.Resize((size[0], size[1], 1), image_interpolation='linear', label_interpolation='nearest'),
-        ])
-        # intensity-only transforms (auto-skip LabelMap)
-        self.intensity = tio.Compose([
-            tio.RandomBiasField(p=0.5),
-            tio.RandomGamma(log_gamma=(-0.3, 0.3), p=0.5),
-            tio.RandomNoise(std=(0.1, 0.25), p=0.5),
-            tio.RandomBlur(std=(0.5, 2), p=0.5),
-        ])
+    """
+    Comprehensive augmentation strategy for mammogram classification.
+    Designed to preserve anatomical structures while adding robustness to:
+    - Acquisition variations (intensity, contrast, noise)
+    - Patient positioning (small rotations, translations)
+    - Equipment differences (bias field, blur)
+    """
+    def __init__(self, size=(1024, 1024), augmentation_strength='moderate'):
+        """
+        Args:
+            size: Target image size
+            augmentation_strength: 'mild', 'moderate', or 'strong'
+        """
+        self.size = size
+        self.augmentation_strength = augmentation_strength
+        
+        # Spatial transforms - mild to preserve anatomical structures
+        if augmentation_strength == 'mild':
+            spatial_augs = [
+                tio.RandomFlip(axes=(1,), p=0.5),  # Horizontal flip (medically reasonable)
+                tio.RandomAffine(
+                    scales=(0.95, 1.05),  # Very small scaling
+                    degrees=(-5, 5),  # Small rotation
+                    translation=(10, 10, 0),  # Small translation
+                    image_interpolation='linear',
+                    p=0.4,
+                ),
+            ]
+        elif augmentation_strength == 'moderate':
+            spatial_augs = [
+                tio.RandomFlip(axes=(1,), p=0.5),  # Horizontal flip
+                tio.RandomAffine(
+                    scales=(0.92, 1.08),  # Moderate scaling
+                    degrees=(-10, 10),  # Moderate rotation
+                    translation=(15, 15, 0),  # Moderate translation
+                    image_interpolation='linear',
+                    p=0.5,
+                ),
+            ]
+        else:  # strong
+            spatial_augs = [
+                tio.RandomFlip(axes=(1,), p=0.5),
+                tio.RandomAffine(
+                    scales=(0.90, 1.10),  # Larger scaling
+                    degrees=(-15, 15),  # Larger rotation
+                    translation=(20, 20, 0),
+                    image_interpolation='linear',
+                    p=0.6,
+                ),
+            ]
+        
+        self.spatial = tio.Compose(spatial_augs)
+        
+        # Intensity transforms - simulate acquisition variations
+        if augmentation_strength == 'mild':
+            intensity_augs = [
+                tio.RandomGamma(log_gamma=(-0.15, 0.15), p=0.4),  # Contrast adjustment
+                tio.RandomNoise(std=(0, 0.015), p=0.3),  # Small noise
+                tio.RandomBlur(std=(0.25, 0.5), p=0.3),  # Mild blur
+            ]
+        elif augmentation_strength == 'moderate':
+            intensity_augs = [
+                tio.RandomBiasField(coefficients=(0.1, 0.3), p=0.3),  # Bias field (common in MRI, mild for mammo)
+                tio.RandomGamma(log_gamma=(-0.2, 0.2), p=0.5),  # Contrast adjustment
+                tio.RandomNoise(std=(0, 0.02), p=0.4),  # Moderate noise
+                tio.RandomBlur(std=(0.25, 0.75), p=0.4),  # Moderate blur
+            ]
+        else:  # strong
+            intensity_augs = [
+                tio.RandomBiasField(coefficients=(0.1, 0.4), p=0.4),
+                tio.RandomGamma(log_gamma=(-0.3, 0.3), p=0.6),
+                tio.RandomNoise(std=(0, 0.03), p=0.5),
+                tio.RandomBlur(std=(0.25, 1.0), p=0.5),
+            ]
+        
+        self.intensity = tio.Compose(intensity_augs)
 
     def __call__(self, img_tensor_CHW, dense_mask_tensor_HW, breast_mask_tensor_HW):
         # TorchIO expects [C, H, W, D]; make D=1 for 2D
@@ -56,7 +110,7 @@ class JointTioAug:
             breast_mask=tio.LabelMap(tensor=breast_mask4d)
         )
         subject = self.spatial(subject)        # same spatial params shared
-        subject = self.intensity(subject)      # applied to image only
+        subject.image = self.intensity(subject.image)      # applied to image only
 
         img_aug  = subject.image.data.squeeze(-1)             # back to [C,H,W]
         dense_mask_aug = subject.dense_mask.data.squeeze(0).squeeze(-1)   # back to [H,W]
@@ -137,7 +191,7 @@ class RandomOrderTorchIO(tio.transforms.Transform):
         return subject
 
 
-class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
+class TdludatasetTorchioFourViewMaskMetaAvg10FoldsHologic(Dataset):
     """
     Dataset for four-view mammograms: CC/L, MLO/L, MLO/R, CC/R.
     Supports optional 10-fold cross-validation with separate validation and test folds.
@@ -157,7 +211,8 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         purpose: str = 'train',  # 'train', 'validation', or 'test'
         cross_val_fold: int = None,  # test fold index 0-9
         split_ratio=(0.8, 0.1, 0.1),  # used if cross_val_fold is None
-        use_augmentation: bool = True
+        use_augmentation: bool = True,
+        augmentation_strength: str = 'moderate'  # 'mild', 'moderate', or 'strong'
     ):
         self.image_dir = image_dir
         self.dense_mask_dir = dense_mask_dir
@@ -168,6 +223,7 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         self.label_type = label_type
         self.purpose = purpose
         self.use_augmentation = use_augmentation
+        self.augmentation_strength = augmentation_strength
 
         # Allowed view-laterality combinations
         self.allowed_combos = [
@@ -181,6 +237,8 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         df = pd.read_csv(csv_path)
         # Drop unknown geanc_Race rows
         df = df[df['geanc_Race'] != 'N']
+        # Include only Hologic rows
+        df = df[df['Manufacturer'] == 'HOLOGIC  Inc.']
 
         # Filter to rows where (view, side) is one of {('CC','L'), ('MLO','L'), ('MLO','R'), ('CC','R')}”.
         df = df[df[['ViewPosition_comp2', 'ImageLaterality_comp2']]
@@ -233,12 +291,21 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
             }
 
 
-        # Cross-validation splitting
+        # Cross-validation splitting (stratified by label)
         assert 0 <= cross_val_fold < 10, "cross_val_fold must be in [0,9]"
         subs = list(all_data.keys())
-        random.seed(1234)
-        random.shuffle(subs)
-        folds = np.array_split(subs, 10)
+        labels = [int(all_data[sid]['target']) for sid in subs]
+        rng = np.random.RandomState(1234)
+        subs = np.array(subs)
+        labels = np.array(labels)
+        folds = [[] for _ in range(10)]
+        for cls in np.unique(labels):
+            cls_mask = labels == cls
+            cls_ids = subs[cls_mask]
+            rng.shuffle(cls_ids)
+            split = np.array_split(cls_ids, 10)
+            for i in range(10):
+                folds[i].extend(split[i].tolist())
         test_ids = list(folds[cross_val_fold])
         # determine validation fold
         val_idx = (cross_val_fold + 1) % 10
@@ -259,7 +326,25 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         # finalize
         self.subjects = selected
         self.subject_data = {sid: all_data[sid] for sid in self.subjects}
-        self.joint_aug = JointTioAug(size=(1024, 1024))
+        # Initialize augmentation with specified strength
+        self.joint_aug = JointTioAug(size=(1024, 1024), augmentation_strength=self.augmentation_strength)
+
+        train_meta_values = []
+        train_race_values = []
+        for sid in train_ids:
+            subj_meta = all_data[sid]['subject_meta']   # [BreastDensity, mamm_age, cbmi, geanc_Race]
+            # first three are continuous
+            train_meta_values.append(subj_meta[:3].astype(float))
+            train_race_values.append(int(subj_meta[3]))
+
+        train_meta_array = np.stack(train_meta_values)   # [N_train, 3]
+
+        # Calculate mean and std for continuous features only
+        self.meta_mean = torch.tensor(np.mean(train_meta_array, axis=0), dtype=torch.float32)  # [3]
+        self.meta_std  = torch.tensor(np.std(train_meta_array,  axis=0), dtype=torch.float32)  # [3]
+
+        # Number of race categories (1–7)
+        self.num_race_classes = 7
         
         self.class_weights = compute_class_weights(
             self.subjects,
@@ -267,7 +352,7 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
             self.thresholds,
             self.label_type
         )
-        # print(f"{self.purpose} Class weights: {self.class_weights}")
+        print(f"{self.purpose} Class weights: {self.class_weights}")
 
     def __len__(self):
         return len(self.subjects)
@@ -282,35 +367,35 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
         for combo in self.allowed_combos:
             fname = data['combos'][combo]          # get the filename
 
-            dense_mask_path = os.path.join(self.dense_mask_dir, f"Masks_{fname.replace('.png', '')}-new.npy")
-            breast_masks_path = os.path.join(self.breast_mask_dir, f"Masks_{fname.replace('.png', '')}-new_BreastMask.npy")
-            dense_mask = torch.as_tensor(np.load(dense_mask_path), dtype=torch.bool)
-            breast_mask = torch.as_tensor(np.load(breast_masks_path), dtype=torch.bool)
             img_path = os.path.join(self.image_dir, fname)
             img = Image.open(img_path)
             img = TF.convert_image_dtype(transforms.PILToTensor()(img), torch.float32)
 
+            # # print range of img before normalize
+            # print(f"Image min/max before normalize: {img.min().item():.3f}/{img.max().item():.3f}")
+
+            img  = TF.resize(img, (1024, 1024), interpolation=InterpolationMode.BILINEAR)
             if self.purpose == 'train' and self.use_augmentation:
-                img, dense_mask, breast_mask = self.joint_aug(img, dense_mask, breast_mask)
+                # Create dummy masks (zeros) because this dataset is mammogram-only
+                dummy_mask = torch.zeros(1024, 1024, dtype=torch.bool)
+                img, _, _ = self.joint_aug(img, dummy_mask, dummy_mask)
             else:
                 # still ensure same resize rule when no random augs:
-                img  = TF.resize(img,  (1024, 1024), interpolation=InterpolationMode.BILINEAR)
-                dense_mask = TF.resize(dense_mask.unsqueeze(0), (1024, 1024), interpolation=InterpolationMode.NEAREST).squeeze(0)
-                breast_mask = TF.resize(breast_mask.unsqueeze(0), (1024, 1024), interpolation=InterpolationMode.NEAREST).squeeze(0)
+                pass
 
+            
             img = img.repeat(3, 1, 1)
-            # normalize image only (keep mask categorical)
-            img = TF.normalize(img, mean=(0.113,)*img.shape[0], std=(0.185,)*img.shape[0])
+            # Use ImageNet normalization to stay aligned with pretrained ResNet weights
+            img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+            # # print range of img after normalize
+            # print(f"Image min/max after normalize: {img.min().item():.3f}/{img.max().item():.3f}")
 
             views.append(img)
-            dense_masks.append(dense_mask)
-            breast_masks.append(breast_mask)
             file_names.append(fname)
         
         views_tensor = torch.stack(views, 0)
-        dense_masks_tensor = torch.stack(dense_masks, 0)
-        breast_masks_tensor = torch.stack(breast_masks, 0)
-        masks_tensor = torch.stack([dense_masks_tensor, breast_masks_tensor], dim=1)  # shape [4,2,H,W]
+        masks_tensor = torch.zeros(views_tensor.size(0), 2, views_tensor.size(2), views_tensor.size(3))
 
         raw = data['target']
 
@@ -329,29 +414,48 @@ class TdludatasetTorchioFourViewMaskMetaAvgFolds(Dataset):
 
         label = torch.tensor(bin_idx, dtype=torch.long)
 
-        # the 3 shared meta-features
-        meta = torch.tensor(
-            data['subject_meta'],
-            dtype=torch.float32
-        )  # → shape [3]
+                # subject_meta is [BreastDensity_avg, mamm_age, cbmi_donation, geanc_Race]
+        subj_meta = data['subject_meta']
+
+        # ---- continuous features (3 dims) ----
+        cont_np = np.asarray(subj_meta[:3], dtype=np.float32)   # [3]
+        cont = torch.from_numpy(cont_np)                        # [3]
+
+        cont_norm = (cont - self.meta_mean) / self.meta_std     # [3]
+
+        # ---- categorical race (1–7) as one-hot ----
+        race_int = int(subj_meta[3])
+        # convert {1,…,7} → {0,…,6}
+        race_idx = race_int - 1
+        if race_idx < 0 or race_idx >= self.num_race_classes:
+            raise ValueError(f"geanc_Race out of range: {race_int}")
+
+        race_one_hot = F.one_hot(
+            torch.tensor(race_idx, dtype=torch.long),
+            num_classes=self.num_race_classes,
+        ).to(torch.float32)                                     # [7]
+
+        # ---- final meta vector: [3 continuous (z-scored) + 7 one-hot] ----
+        meta = torch.cat([cont_norm, race_one_hot], dim=0)      # [10]
+
 
         return views_tensor, masks_tensor, meta, label, file_names
 
 if __name__ == "__main__":
-    train_ds = TdludatasetTorchioFourViewMaskMetaAvgFolds(
+    train_ds = TdludatasetTorchioFourViewMaskMetaAvg10Folds(
         image_dir='/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16',
         dense_mask_dir = '/beacon-scratch/tuxunlu/git/tdlu/KOMEN/LIBRA_Masks_npy',
         breast_mask_dir = '/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16_contour',
         csv_path='/beacon-scratch/tuxunlu/git/tdlu/KOMEN/umd_annot_md_TDLU_y2025m07d09.csv',
-        num_bins=3,
-        target='BreastDensity_avg_four',
-        label_type='raw',
-        meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
+        num_bins=2,
+        target='tdlu_density_extreme',
+        label_type='label',
+        meta_cols=['mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='train',
         cross_val_fold=0,
     )
 
-    val_ds = TdludatasetTorchioFourViewMaskMetaAvgFolds(
+    val_ds = TdludatasetTorchioFourViewMaskMetaAvg10Folds(
         image_dir='/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16',
         dense_mask_dir = '/beacon-scratch/tuxunlu/git/tdlu/KOMEN/LIBRA_Masks_npy',
         breast_mask_dir = '/beacon-scratch/tuxunlu/git/tdlu/KOMEN/WUSTL_png_nomarker_16_contour',
@@ -359,15 +463,20 @@ if __name__ == "__main__":
         num_bins=3,
         target='BreastDensity_avg_four',
         label_type='raw',
-        meta_cols=['BreastDensity', 'mamm_age', 'cbmi_donation', 'geanc_Race'],
+        meta_cols=['mamm_age', 'cbmi_donation', 'geanc_Race'],
         purpose='validation',
         cross_val_fold=0,
     )
 
-    idx=1
+    idx=10
     
     views, masks, meta, label, filenames = train_ds[idx]
     print("Train: ", views.shape, masks.shape, meta, label, filenames)
+    exit()
+
+    views, masks, meta, label, filenames = val_ds[idx]
+    print("Validation: ", views.shape, masks.shape, meta, label, filenames)
+
  
     # statistics used in your Normalize
     mean = torch.tensor([0.113, 0.113, 0.113])[:, None, None]
