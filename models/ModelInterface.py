@@ -1,10 +1,19 @@
 import inspect
+import os
 import torch
 import importlib
 import torch.optim.lr_scheduler as lrs
 import pytorch_lightning as pl
 from typing import Callable, Dict, Tuple
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix
+
+try:
+    import seaborn as sns
+    _HAS_SEABORN = True
+except ImportError:
+    _HAS_SEABORN = False
 
 from .loss.OhemCELoss import OhemCELoss
 from .loss.FocalLoss import FocalLoss
@@ -18,6 +27,12 @@ class ModelInterface(pl.LightningModule):
         self.loss_function = self.__configure_loss()
         # Initialize a list to collect predicted labels from each training batch.
         self._train_labels = []
+        # Collect validation preds/labels for confusion matrix.
+        self._val_preds = []
+        self._val_labels = []
+        # Collect test preds/labels for confusion matrix.
+        self._test_preds = []
+        self._test_labels = []
 
         self.train_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
         self.val_f1 = MulticlassF1Score(num_classes=self.hparams.num_bins, average='macro')
@@ -72,11 +87,58 @@ class ModelInterface(pl.LightningModule):
         self.val_f1(val_logits, val_labels)
         self.val_acc(val_logits, val_labels)
 
-        # Only log the loss here
+        # Collect for confusion matrix (only rank 0 in DDP to avoid duplicates)
+        if self.trainer.global_rank == 0:
+            preds = val_logits.argmax(dim=1).detach().cpu()
+            self._val_preds.append(preds)
+            self._val_labels.append(val_labels.detach().cpu())
+
         self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('val_acc', self.val_acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('val_f1', self.val_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return val_loss
+
+    def on_validation_epoch_end(self):
+        """Plot and save confusion matrix to run folder."""
+        if self.trainer.global_rank != 0 or not self._val_preds:
+            return
+        preds = torch.cat(self._val_preds).numpy()
+        labels = torch.cat(self._val_labels).numpy()
+        self._val_preds.clear()
+        self._val_labels.clear()
+
+        cm = confusion_matrix(labels, preds)
+        num_classes = self.hparams.num_bins
+        class_names = [str(i) for i in range(num_classes)]
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        if _HAS_SEABORN:
+            sns.heatmap(
+                cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names,
+                ax=ax, cbar_kws={'label': 'Count'}
+            )
+        else:
+            im = ax.imshow(cm, cmap='Blues')
+            plt.colorbar(im, ax=ax, label='Count')
+            for i in range(num_classes):
+                for j in range(num_classes):
+                    ax.text(j, i, str(cm[i, j]), ha='center', va='center', color='black')
+            ax.set_xticks(range(num_classes))
+            ax.set_yticks(range(num_classes))
+            ax.set_xticklabels(class_names)
+            ax.set_yticklabels(class_names)
+        ax.set_xlabel('Predicted')
+        ax.set_ylabel('True')
+        ax.set_title(f'Validation Confusion Matrix (Epoch {self.current_epoch})')
+
+        log_dir = self.trainer.log_dir or self.logger.log_dir
+        if log_dir:
+            save_dir = os.path.join(log_dir, 'confusion_matrix_val')
+            os.makedirs(save_dir, exist_ok=True)
+            path = os.path.join(save_dir, f'epoch_{self.current_epoch:04d}.png')
+            fig.savefig(path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
 
     def test_step(self, batch, batch_idx):
         *test_input, test_labels, test_filenames = batch
@@ -84,6 +146,11 @@ class ModelInterface(pl.LightningModule):
         test_loss = self.loss_function(test_logits, test_labels, 'test')
 
         out_label = test_logits.argmax(dim=1)
+
+        # Collect for confusion matrix (only rank 0 in DDP to avoid duplicates)
+        if self.trainer.global_rank == 0:
+            self._test_preds.append(out_label.detach().cpu())
+            self._test_labels.append(test_labels.detach().cpu())
 
         # Print sample predictions for debugging.
         print(f"Batch {batch_idx} Predictions: {out_label[:10].tolist()}, Labels: {test_labels[:10].tolist()}")
@@ -96,6 +163,48 @@ class ModelInterface(pl.LightningModule):
         self.log('test_f1', self.test_f1, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return test_loss
+
+    def on_test_epoch_end(self):
+        """Plot and save confusion matrix for test set."""
+        if self.trainer.global_rank != 0 or not self._test_preds:
+            return
+        preds = torch.cat(self._test_preds).numpy()
+        labels = torch.cat(self._test_labels).numpy()
+        self._test_preds.clear()
+        self._test_labels.clear()
+
+        cm = confusion_matrix(labels, preds)
+        num_classes = self.hparams.num_bins
+        class_names = [str(i) for i in range(num_classes)]
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        if _HAS_SEABORN:
+            sns.heatmap(
+                cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names,
+                ax=ax, cbar_kws={'label': 'Count'}
+            )
+        else:
+            im = ax.imshow(cm, cmap='Blues')
+            plt.colorbar(im, ax=ax, label='Count')
+            for i in range(num_classes):
+                for j in range(num_classes):
+                    ax.text(j, i, str(cm[i, j]), ha='center', va='center', color='black')
+            ax.set_xticks(range(num_classes))
+            ax.set_yticks(range(num_classes))
+            ax.set_xticklabels(class_names)
+            ax.set_yticklabels(class_names)
+        ax.set_xlabel('Predicted')
+        ax.set_ylabel('True')
+        ax.set_title('Test Confusion Matrix')
+
+        log_dir = self.trainer.log_dir or self.logger.log_dir
+        if log_dir:
+            save_dir = os.path.join(log_dir, 'confusion_matrix_test')
+            os.makedirs(save_dir, exist_ok=True)
+            path = os.path.join(save_dir, 'test_confusion_matrix.png')
+            fig.savefig(path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -115,11 +224,30 @@ class ModelInterface(pl.LightningModule):
                 gamma=self.hparams.lr_decay_rate
             )
         elif self.hparams.lr_scheduler == 'cosine':
-            scheduler = lrs.CosineAnnealingLR(
-                optimizer,
-                T_max=self.hparams.lr_decay_epochs,
-                eta_min=self.hparams.lr_decay_min_lr
-            )
+            warmup_epochs = getattr(self.hparams, 'warmup_epochs', 0)
+            if warmup_epochs > 0:
+                # Warmup: linear from warmup_lr to lr over warmup_epochs
+                warmup_lr = getattr(self.hparams, 'warmup_lr', 1.0e-6)
+                warmup_scheduler = lrs.LinearLR(
+                    optimizer, start_factor=warmup_lr / float(self.hparams.lr), total_iters=warmup_epochs
+                )
+                # Cosine: decay from lr to eta_min over remaining epochs
+                cosine_scheduler = lrs.CosineAnnealingLR(
+                    optimizer,
+                    T_max=self.hparams.lr_decay_epochs - warmup_epochs,
+                    eta_min=self.hparams.lr_decay_min_lr,
+                )
+                scheduler = lrs.SequentialLR(
+                    optimizer,
+                    schedulers=[warmup_scheduler, cosine_scheduler],
+                    milestones=[warmup_epochs],
+                )
+            else:
+                scheduler = lrs.CosineAnnealingLR(
+                    optimizer,
+                    T_max=self.hparams.lr_decay_epochs,
+                    eta_min=self.hparams.lr_decay_min_lr
+                )
         elif self.hparams.lr_scheduler == 'cosine_restart':
             scheduler = lrs.CosineAnnealingWarmRestarts(
                 optimizer,

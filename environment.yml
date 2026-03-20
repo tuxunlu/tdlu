@@ -1,0 +1,37 @@
+# TDLU mamba/conda environment
+# Usage: mamba env create -f environment.yml
+# Activate: mamba activate tdlu
+
+name: tdlu
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  # PyTorch with CUDA 12.4 (compatible with L40S, CUDA 13.x driver)
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.4
+  # Deep learning & training
+  - pytorch-lightning
+  - torchmetrics
+  # Medical imaging
+  - torchio
+  - pydicom
+  - gdcm
+  # Scientific & data
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - pillow
+  - pyyaml
+  - tqdm
+  - opencv
+  # Pip-only (transformers for Swin models)
+  - pip
+  - pip:
+    - transformers

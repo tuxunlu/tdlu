@@ -1,0 +1,58 @@
+seed: 1234
+
+model_interface: "ModelInterface"
+model_class_name: "MGModule_one_view_meta_avg_cross_attention"
+use_compile: True
+freeze_backbone: True
+unfreeze_backbone_epoch: 20  # Unfreeze backbone after training head for 50 epochs
+fusion_method: "cross_attention"
+num_meta_features: 9
+resume_from_manual_checkpoint: null
+
+loss: [FocalLoss]
+loss_weight: [1]
+weight_decay: 1.0e-3
+focal_loss_alpha: [1.2031558185404339, 0.594541910331384, 2.053872053872054]
+focal_loss_gamma: 1
+
+enable_checkpointing: True
+devices: 1
+strategy: "auto"
+max_epochs: 200
+lr: 5.0e-04
+lr_decay_epochs: 200
+lr_decay_min_lr: 1.0e-06
+lr_scheduler: "cosine"
+warmup_epochs: 25
+warmup_lr: 1.0e-06
+gradient_clip_val: 1.0
+dropout_rate: 0.1
+
+dataset_name: "TDLUDataset_torchio_four_view_mask_meta_avg_10_folds_STAMP"
+meta_cols: ["mamm_age", "PATIENTI_BMI", "RACE_COMPOSITE"]
+num_folds: 5
+cross_val_fold: 0
+split_ratio: [0.8, 0.1, 0.1]  # train, val, test
+mamm_only: True
+batch_size: 32
+test_batch_size: 1
+num_save: 50
+num_bins: 3
+target: "tdlu_density_extreme_zero"
+label_type: "label"
+run_dir: "./runs"
+num_workers: 6
+persistent_workers: False
+pin_memory: False
+
+image_dir: "/beacon-projects/mammography/tdlu/dataset/STAMP/breast_cropped_float32/windowed_original_source/processed_png"
+dense_mask_dir: "/beacon-projects/mammography/tdlu/dataset/STAMP/breast_cropped_float32/windowed_original_source/masks_png"
+breast_mask_dir: null
+csv_path: "/beacon-projects/mammography/tdlu/dataset/STAMP/stamp_annot_md_TDLU_y2026m01d23.csv"
+use_augmentation: True
+weights_json_path: null
+device: "cuda"
+
+log_dir: "/beacon-projects/mammography/tdlu/runs"
+experiment_name: "config_torchio_3bins_tdlu_stamp_one_view_5folds_avg_cross_attention_fold{fold}_no_breast_density"
+log_every_n_steps: 1
